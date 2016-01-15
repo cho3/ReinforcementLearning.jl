@@ -91,7 +91,7 @@ function update!{T}(param::SARSAParam,
                   a_::T,
                   gamma::Float64,
                   lr::Float64)
-  phi,r,phi_ = replay!(er,phi,r,phi_)
+  phi,a,r,phi_,a_ = replay!(er,phi,a,r,phi_,a_)
   #NOTE: this might be a singleton array
   q = dot(param.w,phi) #TODO: dealing with feature functions that involve state and action?
   q_ = dot(param.w,phi_)
@@ -109,7 +109,66 @@ end
 type QParam <: UpdaterParam
 
 end
-######################################
-type DoubleQParam <: UpdaterParam
 
+
+######################################
+type GQParam <: UpdaterParam
+
+end
+
+######################################
+#TODO: special annealer type for this solver?
+type DoubleAnnealer <: AnnealerParam
+  A::AnnealerParam
+  B::AnnealerParam
+end
+DoubleAnnealer(an::AnnealerParam) = DoubleAnnealer(an,deepcopy(an))
+
+type DoubleMinibatcher <: Minibatcher
+  A::Minibatcher
+  B::Minibatcher
+end
+DoubleMinibatcher(mb::Minibatcher) = DoubleMinibatcher(mb,deepcopy(mb))
+
+type DoubleQParam <: UpdaterParam
+  wA::Array{Float64,1}
+  wB::Array{Float64,1}
+  updatingA::Bool
+  rng::AbstractRNG
+  is_deterministic_switch::Bool
+end
+
+function update!{T}(param::DoubleQParam,
+                    annealer::DoubleAnnealer,
+                    mb::DoubleMinibatcher,
+                    er::ExperienceReplayer,
+                    phi::Array{Union{Float64,Int},1},
+                    a::T,
+                    r::Union{Float64,Int},
+                    phi_::Array{Union{Float64,Int},1},
+                    a_::T,
+                    gamma::Float64,
+                    lr::Float64)
+  phi,a,r,phi_,a_ = replay!(er,phi,a,r,phi_,a_)
+
+  updateAflag = false
+  if param.is_deterministic_switch
+    param.updatingA = !param.updatingA
+    updateAflag = param.updatingA
+  else
+    updateAflag = rand(param.rng,Bool)
+  end
+  if updateAflag
+    QB_ = dot(param.wB,phi_)
+    QA = dot(param.wA,phi)
+    del = r + discount*QB_ - QA
+    dw = del*phi
+    param.wA += lr*anneal!(annealer.B,minibatch!(mb.B,dw))
+  else
+    QA_ = dot(param.wA,phi_)
+    QB = dot(param.wB,phi)
+    del = r + discount*QA_ - QB
+    dw = del*phi
+    param.wB += lr*anneal!(annealer.B,minibatch!(mb.B,dw))
+  end
 end

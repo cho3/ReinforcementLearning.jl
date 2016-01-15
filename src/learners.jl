@@ -6,9 +6,77 @@ abstract AnnealerParam
 
 #Vanilla annealer
 type NullAnnealer <: AnnealerParam end
+AnnealerParam() = NullAnnealer()
 anneal!(::AnnealerParam,dw::Array{Float64,1}) = dw
 
+#TODO:
+"""
+exponential decay: lr = lr0*expt(-k*t)
+step decay every t0 epoch if mod(t,t0) == 0: lr /= k (or times)
+1/t decay: lr = lr0/(1+kt)
+"""
 
+"Taken from cs231n.github.io"
+#TODO: make sure this doesn't break from minibatcher returning zeros()
+#Momentum Update
+type MomentumAnnealer <:AnnealerParam
+  v::Array{Float64,1} #having just  single array may be insufficient for more complex things
+  mu::Float64 #[0.5, 0.9, 0.95, 0.99]
+end
+function anneal!(an::MomentumAnnealer,dw::Array{Float64,1})
+  an.v = an.mu*an.v - lr*dw #TODO: how to handle lr btwn stuff
+  return an.v
+end
+
+#Nesterov update
+type NesterovAnnealer <: AnnealerParam
+  v::Array{Float64,1}
+  mu::Float64
+end
+function anneal!(an::NesterovAnnealer, dw::Array{Float64,1})
+  v_prev = an.v
+  v = an.mu*an.v - lr*dw #TODO: how to handle lr btwn tuff
+  return -an.mu*v_prev + (1 + an.mu)*v
+end
+
+#Adagrad update
+type AdagradAnnealer <: AnnealerParam
+  cache::Array{Float64,1}
+  fuzz::Float64 #1e-8
+end
+function anneal!(an::AdagradAnnealer,dw::Array{Float64,1})
+  an.cache += dw.^2
+  return dw./sqrt(an.cache + an.fuzz)
+end
+
+#Adadelta update
+type AdadeltaAnnealer <: AnnealerParam
+
+end
+function anneal!(an::AdadeltaAnnealer,dw::Array{Float64,1})
+
+end
+
+#RMSProp update
+type RMSPropAnnealer <: AnnealerParam
+  cache::Array{Float64,1}
+  fuzz::Float64 #1e-8
+  decay_rate::Float64 #[0.9; 0.99; 0.999]
+end
+function anneal!(an::RMSPropAnnealer,dw::Array{Float64})
+  an.cache = an.decay_rate*an.cache + (1.-an.decay_rate)*(dw.^2)
+  return dw./sqrt(an.cache + an.fuzz)
+end
+
+#ADAM update
+type AdamAnnealer <: AnnealerParam
+
+end
+function anneal!(an::AdamAnnealer,dw::Array{Float64,1})
+
+end
+
+######################################
 
 abstract ExperienceReplayer
 type NullExperienceReplayer <:ExperienceReplayer end
@@ -51,8 +119,10 @@ end
 ##################################
 abstract Minibatcher
 type NullMinibatcher <: Minibatcher end
+Minibatcher() = NullMinibatcher()
 minibatch!(mb::NullMinibatcher,dw::Array{Float64,1}) = dw
 
+"This is uniform because you could presumably do other weird averaging things"
 type UniformMinibatcher <: Minibatcher
   minibatch_size::Int
   dw::Array{Float64,1}
