@@ -1,6 +1,7 @@
 #solve.jl
 #a place to hold the base solver stuff
 
+#TODO: verbose
 type Solver
   lr::Float64 #initial learning relate
   nb_episodes::Int
@@ -24,22 +25,26 @@ type Solver
     self.lr = lr
     self.nb_episodes = nb_episodes
     self.nb_timesteps = nb_timesteps
-    self.discont = discount
+    self.discount = discount
     self.simRNG = simRNG
     self.annealer = annealer
     self.mb = mb
     self.er = er
     self.updater = updater
+
+    return self
   end
 end
 
-
+#TODO: phi, a = action(policy,updater,s)?
+#TODO: early stopping?
 function solve(solver::Solver,bbm::BlackBoxModel,policy::Policy)
 
+  #TODO: maintain Q-statistics from update in order to plot things
   #maintain statistics?
   for ep = 1:solver.nb_episodes
     #episode setup stuff
-    s = feature_function(init(bbm,solver.simRNG))
+    s = init(bbm)
     a = action(policy,updater,s)
     phi = policy.feature_function(s,a)
     for t = 1:solver.nb_timesteps
@@ -48,7 +53,7 @@ function solve(solver::Solver,bbm::BlackBoxModel,policy::Policy)
       phi_ = policy.feature_function(s_,a_)
       gamma = isterminal(bbm,a_) ? 0. : solver.discount
       #NOTE: using s,a,r,s_,a_ for maximum generality
-      update!(solver.updater,solver.annealer,solver.mb,solver.er,phi,a,r,phi_,a,gamma,lr)
+      update!(solver.updater,solver.annealer,solver.mb,solver.er,phi,a,r,phi_,a,gamma,solver.lr)
       if gamma == 0.
         break
       end

@@ -6,6 +6,20 @@ type Simulator
   actRNG::AbstractRNG
   nb_sim::Int
   nb_timesteps::Int
+  function Simulator(;discount::Float64=0.99,
+                      simRNG::AbstractRNG=MersenneTwister(234234),
+                      actRNG::AbstractRNG=MersenneTwister(98765432436),
+                      nb_sim::Int=100,
+                      nb_timesteps::Int=100)
+    self = new()
+    self.discount = discount
+    self.simRNG = simRNG
+    self.actRNG = actRNG
+    self.nb_sim = nb_sim
+    self.nb_timesteps = nb_timesteps
+
+    return self
+  end
 end
 
 #TODO: policy types should probably have the feature function built in as a matter of fact

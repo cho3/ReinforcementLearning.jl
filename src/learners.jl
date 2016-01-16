@@ -1,13 +1,10 @@
 #learners.jl
 #this might be broken into learningrate.jl and minibatch.jl and experiencereplay.jl in the future
 
-
-abstract AnnealerParam
-
 #Vanilla annealer
 type NullAnnealer <: AnnealerParam end
 AnnealerParam() = NullAnnealer()
-anneal!(::AnnealerParam,dw::Array{Float64,1}) = dw
+anneal!(::AnnealerParam,dw::RealVector) = dw
 
 #TODO:
 """
@@ -16,24 +13,24 @@ step decay every t0 epoch if mod(t,t0) == 0: lr /= k (or times)
 1/t decay: lr = lr0/(1+kt)
 """
 
-"Taken from cs231n.github.io"
+#NOTE:"Taken from cs231n.github.io"
 #TODO: make sure this doesn't break from minibatcher returning zeros()
 #Momentum Update
 type MomentumAnnealer <:AnnealerParam
-  v::Array{Float64,1} #having just  single array may be insufficient for more complex things
+  v::RealVector #having just  single array may be insufficient for more complex things
   mu::Float64 #[0.5, 0.9, 0.95, 0.99]
 end
-function anneal!(an::MomentumAnnealer,dw::Array{Float64,1})
+function anneal!(an::MomentumAnnealer,dw::RealVector)
   an.v = an.mu*an.v - lr*dw #TODO: how to handle lr btwn stuff
   return an.v
 end
 
 #Nesterov update
 type NesterovAnnealer <: AnnealerParam
-  v::Array{Float64,1}
+  v::RealVector
   mu::Float64
 end
-function anneal!(an::NesterovAnnealer, dw::Array{Float64,1})
+function anneal!(an::NesterovAnnealer, dw::RealVector)
   v_prev = an.v
   v = an.mu*an.v - lr*dw #TODO: how to handle lr btwn tuff
   return -an.mu*v_prev + (1 + an.mu)*v
@@ -41,54 +38,64 @@ end
 
 #Adagrad update
 type AdagradAnnealer <: AnnealerParam
-  cache::Array{Float64,1}
+  cache::RealVector
   fuzz::Float64 #1e-8
 end
-function anneal!(an::AdagradAnnealer,dw::Array{Float64,1})
+function anneal!(an::AdagradAnnealer,dw::RealVector)
   an.cache += dw.^2
   return dw./sqrt(an.cache + an.fuzz)
 end
 
 #Adadelta update
 type AdadeltaAnnealer <: AnnealerParam
-
+  mu::Float64
+  fuzz::Float64
 end
-function anneal!(an::AdadeltaAnnealer,dw::Array{Float64,1})
+function anneal!(an::AdadeltaAnnealer,dw::RealVector)
 
 end
 
 #RMSProp update
 type RMSPropAnnealer <: AnnealerParam
-  cache::Array{Float64,1}
+  cache::RealVector
   fuzz::Float64 #1e-8
   decay_rate::Float64 #[0.9; 0.99; 0.999]
 end
-function anneal!(an::RMSPropAnnealer,dw::Array{Float64})
+function anneal!(an::RMSPropAnnealer,dw::RealVector)
   an.cache = an.decay_rate*an.cache + (1.-an.decay_rate)*(dw.^2)
   return dw./sqrt(an.cache + an.fuzz)
 end
 
 #ADAM update
 type AdamAnnealer <: AnnealerParam
-
+  mu::Float64 #0 <= 0.9 < 1
+  nu::Float64 #might be bad naming convention, 0<0.999 <1
+  u::RealVector
+  v::RealVector
+  fuzz::Float64 #1e-8
+  t::Int #init 0
 end
-function anneal!(an::AdamAnnealer,dw::Array{Float64,1})
-
+function anneal!(an::AdamAnnealer,dw::RealVector)
+  an.t += 1
+  an.v = an.mu*an.v+ (1.-an.mu)*dw
+  an.u = an.nu*an.u + (1.-an.nu)*(dw.^2)
+  v_ = an.v./(1-an.mu^an.t)
+  u_ = an.u./(1.-an.nu^an.t)
+  return v_./(sqrt(u_) + an.fuzz)
 end
 
 ######################################
 
-abstract ExperienceReplayer
 type NullExperienceReplayer <:ExperienceReplayer end
-replay!(er::NullExperienceReplayer,phi,r,phi_) = phi,r,phi_#placeholder
+replay!(er::NullExperienceReplayer,phi,a,r,phi_,a_) = phi,a,r,phi_,a_#placeholder
 
 #TODO: parameterize this?
 #TODO: or make it just a pair of feature vectors + reward
 type Experience{T}
-  phi::Array{Union{Float64,Int},1}
+  phi::RealVector
   a::T
   r::Float64
-  phi_::Array{Union{Float64,Int},1}
+  phi_::RealVector
   a_::T
 end
 remember(e::Experience) = e.phi,e.a,e.r,e.phi_,e.a_
@@ -98,10 +105,10 @@ type UniformExperienceReplayer <: ExperienceReplayer
   rng::AbstractRNG
 end
 function replay!{T}(er::UniformExperienceReplayer,
-                  phi::::Array{Union{Float64,Int},1},
+                  phi::RealVector,
                   a::T,
                   r::Float64,
-                  phi_::Array{Union{Float64,Int},1},
+                  phi_::RealVector,
                   a_::T)
   e = Experience(phi,a,r,phi_,a_)
   if length(er.memory) < er.nb_mem
@@ -117,7 +124,6 @@ end
 
 
 ##################################
-abstract Minibatcher
 type NullMinibatcher <: Minibatcher end
 Minibatcher() = NullMinibatcher()
 minibatch!(mb::NullMinibatcher,dw::Array{Float64,1}) = dw
@@ -128,7 +134,7 @@ type UniformMinibatcher <: Minibatcher
   dw::Array{Float64,1}
   current_minibatch_size::Int
 end
-function minibatch!(mb::UniformMinibatcher,dw::Array{Float64,1})
+function minibatch!(mb::UniformMinibatcher,dw::RealVector)
   if mb.current_minibatch_size < mb.minibatch_size
     mb.dw += dw
     mb.current_minibatch_size += 1

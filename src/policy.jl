@@ -1,7 +1,6 @@
 #policy.jl
 #holds the exploration and frozen policies and action space stuff and whatever
-
-abstract ActionSpace
+import Base.length
 
 type DiscreteActionSpace{T} <: ActionSpace
   A::Array{T,1}
@@ -14,16 +13,15 @@ type ContinuousActionSpace <: ActionSpace
 end
 
 
-abstract Policy
 action(::Policy,s) = error("Policy type uninstantiated")
 
 type DiscretePolicy <: Policy
   A::DiscreteActionSpace
   feature_function::Function
-  weights::Array{Float64,1} #NOTE: alternatively cold have entire updater struct
+  weights::RealVector #NOTE: alternatively cold have entire updater struct
 end
 
-function action(p::DiscretePolicy,s)
+function action{T}(p::DiscretePolicy,s::T)
   Qs = zeros(length(p.actions))
   for (i,a) in enumerate(domain(p.actions))
     Qs[i] = dot(p.weights,p.feature_function(s,a)) #where is a sensible place to put w?
@@ -44,21 +42,22 @@ type EpsilonGreedyPolicy <: ExplorationPolicy
   eps::Float64
   function EpsilonGreedyPolicy(feature_function::Function,actions::DiscreteActionSpace;
                                 rng::AbstractRNG=MersenneTwister(2983461),
-                                eps::Float64=0.15)
+                                eps::Float64=0.05)
     self = new()
     self.rng = rng
     self.A = actions
     self.feature_function = feature_function
     self.eps = eps
+    return self
   end
 end
-function action(p::EpsilonGreedyPolicy,u::UpdaterParam,s)
+function action{T}(p::EpsilonGreedyPolicy,u::UpdaterParam,s::T)
   """
   Sketching things out right now, nothing here is final or working
   """
   r = rand(p.rng)
   if r < p.eps
-    return rand(p.rng,1:length(p.A))
+    return domain(p.A)[rand(p.rng,1:length(p.A))]
   end
   Qs = zeros(length(p.A))
   for (i,a) in enumerate(domain(p.A))
@@ -93,7 +92,7 @@ type GaussianPolicy <: ExplorationPolicy
   A::ContinuousActionSpace
 
 end
-function action(p::GaussianPolicy,s)
+function action{T}(p::GaussianPolicy,s::T)
   #TODO
 end
 

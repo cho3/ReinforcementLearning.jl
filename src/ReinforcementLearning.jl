@@ -36,6 +36,25 @@ end
 #etc....
 """
 #TODO: turn into a module....
+typealias RealVector Union{Array{Float64,1},Array{Int,1},SparseMatrixCSC{Float64,Int},SparseMatrixCSC{Int,Int}}
+typealias RealMatrix Union{Array{Float64,2},Array{Int,2},SparseMatrixCSC{Float64,Int},SparseMatrixCSC{Int,Int}}
+dot(x::Array,y::SparseMatrixCSC) = (x'*y)[1]
+dot(x::SparseMatrixCSC,y::Array) = dot(y,x)
+
+import Base.assert
+function assert(expr,val,fn::Function= ==,varname::AbstractString="")
+	if !fn(expr,val)
+    error("Assertion failed: $varname : expected $val, got $expr")
+	end
+end
+
+abstract AnnealerParam
+abstract ExperienceReplayer
+abstract Minibatcher
+abstract UpdaterParam
+abstract ActionSpace
+abstract Policy
+abstract Model
 
 include("BlackBoxModel.jl")
 include("policy.jl")
