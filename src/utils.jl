@@ -2,8 +2,6 @@
 #Mostly just to hold a function that tests if your your generative function is
 #   consistent with your distribution function
 
-using HypothesisTests
-
 function test_equals(x)
   y = deepcopy(x)
   try

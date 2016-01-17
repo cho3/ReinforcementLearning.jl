@@ -36,12 +36,17 @@ end
 #etc....
 """
 #TODO: turn into a module....
+
+using PyPlot #for solver.grandiloquent
+import StatsBase: sample, WeightVec #for policy.SoftmaxPolicy
+using HypothesisTests #for utils.test...
+
 typealias RealVector Union{Array{Float64,1},Array{Int,1},SparseMatrixCSC{Float64,Int},SparseMatrixCSC{Int,Int}}
 typealias RealMatrix Union{Array{Float64,2},Array{Int,2},SparseMatrixCSC{Float64,Int},SparseMatrixCSC{Int,Int}}
 dot(x::Array,y::SparseMatrixCSC) = (x'*y)[1]
 dot(x::SparseMatrixCSC,y::Array) = dot(y,x)
 
-import Base.assert
+import Base.assert #in order for other asserts to be allowed
 function assert(expr,val,fn::Function= ==,varname::AbstractString="")
 	if !fn(expr,val)
     error("Assertion failed: $varname : expected $val, got $expr")

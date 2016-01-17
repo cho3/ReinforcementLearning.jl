@@ -51,6 +51,7 @@ function update!{T}(param::ForgetfulLSTDParam,
   for i = 1:param.k
     param.th += lr*(param.d-param.A*param.th)
   end
+  return 0., 0. #not sure what the estim is off the top of my head
 end
 #####################################
 
@@ -98,12 +99,14 @@ function update!{T}(param::SARSAParam,
   q_ = dot(param.w,phi_)
   del = r + gamma*q_ - q #td error
   if param.is_replacing_trace
-    param.e = vec(max(phi,param.lambda.*param.e)) #NOTE: assumes binary features
+    param.e = vec(max(phi,param.e)) #NOTE: assumes binary features
   else
-    param.e  = vec(phi + param.lambda.*param.e)
+    param.e  = vec(phi + param.e)
   end
   dw = vec(del*param.e)
   param.w += lr.*anneal!(annealer,minibatch!(mb,dw))
+  param.e *= gamma*param.lambda
+  return del, q
 end
 
 #######################################
@@ -165,11 +168,13 @@ function update!{T}(param::DoubleQParam,
     del = r + discount*QB_ - QA
     dw = del*phi
     param.wA += lr*anneal!(annealer.B,minibatch!(mb.B,dw))
+    return del, QA
   else
     QA_ = dot(param.wA,phi_)
     QB = dot(param.wB,phi)
     del = r + discount*QA_ - QB
     dw = del*phi
     param.wB += lr*anneal!(annealer.B,minibatch!(mb.B,dw))
+    return del, QB
   end
 end

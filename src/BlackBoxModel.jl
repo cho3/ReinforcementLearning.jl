@@ -45,22 +45,22 @@ function BlackBoxModel{T}(model::Model,
 end
 """
 
-function init(bbm::BlackBoxModel)
-  bbm.state = bbm.init(bbm.model,bbm.rng)
-  o = bbm.observe(bbm.model,bbm.rng,bbm.state)
+function init(bbm::BlackBoxModel,rng::AbstractRNG=bbm.rng)
+  bbm.state = bbm.init(bbm.model,rng)
+  o = bbm.observe(bbm.model,rng,bbm.state)
   return o
   #emit an initial observation? or is it required that you take an action first
 end
 
-function next{T}(bbm::BlackBoxModel, action::T)
-  bbm.state = bbm.next_state(bbm.model, bbm.rng,bbm.state,action)
-  o = bbm.observe(bbm.model,bbm.rng,bbm.state,action)
-  r = bbm.reward(bbm.model,bbm.rng,bbm.state,action)
+function next{T}(bbm::BlackBoxModel, action::T,rng::AbstractRNG=bbm.rng)
+  bbm.state = bbm.next_state(bbm.model,rng,bbm.state,action)
+  o = bbm.observe(bbm.model,rng,bbm.state,action)
+  r = bbm.reward(bbm.model,rng,bbm.state,action)
   return r,o
 end
 
-function isterminal{T}(bbm::BlackBoxModel,action::T)
-  return bbm.isterminal(bbm.model,bbm.rng,bbm.state,action)
+function isterminal{T}(bbm::BlackBoxModel,action::T,rng::AbstractRNG=bbm.rng)
+  return bbm.isterminal(bbm.model,rng,bbm.state,action)
 end
 
 "Base implementation of observe for fully observed models"

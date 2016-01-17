@@ -22,11 +22,11 @@ type DiscretePolicy <: Policy
 end
 
 function action{T}(p::DiscretePolicy,s::T)
-  Qs = zeros(length(p.actions))
-  for (i,a) in enumerate(domain(p.actions))
+  Qs = zeros(length(p.A))
+  for (i,a) in enumerate(domain(p.A))
     Qs[i] = dot(p.weights,p.feature_function(s,a)) #where is a sensible place to put w?
   end
-  return domain(p.actions)[indmax(Qs)]
+  return domain(p.A)[indmax(Qs)]
 end
 
 abstract ExplorationPolicy <: Policy
@@ -73,7 +73,6 @@ type SoftmaxPolicy <: ExplorationPolicy
   tau::Float64
 end
 
-import StatsBase: sample, WeightVec
 #using StatsBase.sample means RNG is useless, but I'm lazy
 function action{T}(p::SoftmaxPolicy,u::UpdaterParam,s::T)
   """

@@ -1,6 +1,33 @@
 #solve.jl
 #a place to hold the base solver stuff
 
+type SolverHistory
+  R_tot::Array{Float64,1}
+  td_err::Array{Float64,1}
+  q_est::Array{Float64,1}
+end
+
+function display_stats(stats::SolverHistory)
+  #subplot
+  subplot(311)
+  plot(stats.R_tot)
+  xlabel("Episode")
+  ylabel("Total Reward")
+
+  subplot(312)
+  plot(stats.td_err)
+  xlabel("Time Step")
+  ylabel("TD Error")
+
+  subplot(313)
+  plot(stats.q_est)
+  xlabel("Time Step")
+  ylabel("Q Value Estimate")
+
+  suptitle("Reinforcement Learning Statistics and Metrics")
+
+end
+
 #TODO: verbose
 type Solver
   lr::Float64 #initial learning relate
@@ -12,6 +39,11 @@ type Solver
   updater::UpdaterParam
   mb::Minibatcher
   er::ExperienceReplayer
+  verbose::Bool
+  display_interval::Int
+  grandiloquent::Bool #make plots?
+  stats::SolverHistory
+  expma_param::Float64
   function Solver(updater::UpdaterParam;
                     lr::Float64=0.01,
                     nb_episodes::Int=100,
@@ -20,7 +52,11 @@ type Solver
                     simRNG::AbstractRNG=MersenneTwister(23894),
                     annealer::AnnealerParam=NullAnnealer(),
                     mb::Minibatcher=NullMinibatcher(),
-                    er::ExperienceReplayer=NullExperienceReplayer())
+                    er::ExperienceReplayer=NullExperienceReplayer(),
+                    verbose::Bool=true,
+                    display_interval::Int=10,
+                    grandiloquent::Bool=true,
+                    expma_param::Float64=0.9)
     self = new()
     self.lr = lr
     self.nb_episodes = nb_episodes
@@ -31,19 +67,34 @@ type Solver
     self.mb = mb
     self.er = er
     self.updater = updater
+    self.verbose = verbose
+    self.display_interval = display_interval
+    self.grandiloquent = grandiloquent
+    self.expma_param = expma_param
+    self.stats = SolverHistory(zeros(nb_episodes),zeros(nb_episodes*nb_timesteps),zeros(nb_episodes*nb_timesteps))
 
     return self
   end
 end
 
+
 #TODO: phi, a = action(policy,updater,s)?
+#NOTE: there are 3 statistics that are worthwhile to keep track of:
+#       total reward (per episode), td error (per time step), est. q-value (per time step)
 #TODO: early stopping?
 function solve(solver::Solver,bbm::BlackBoxModel,policy::Policy)
 
   #TODO: maintain Q-statistics from update in order to plot things
   #maintain statistics?
+  if solver.verbose
+    println("Solving problem...")
+    R_avg = 0.
+    td_avg = 0.
+    q_avg = 0.
+  end
   for ep = 1:solver.nb_episodes
     #episode setup stuff
+    R_ep = 0.
     s = init(bbm)
     a = action(policy,updater,s)
     phi = policy.feature_function(s,a)
@@ -53,7 +104,19 @@ function solve(solver::Solver,bbm::BlackBoxModel,policy::Policy)
       phi_ = policy.feature_function(s_,a_)
       gamma = isterminal(bbm,a_) ? 0. : solver.discount
       #NOTE: using s,a,r,s_,a_ for maximum generality
-      update!(solver.updater,solver.annealer,solver.mb,solver.er,phi,a,r,phi_,a,gamma,solver.lr)
+      td, q = update!(solver.updater,solver.annealer,solver.mb,solver.er,phi,a,r,phi_,a,gamma,solver.lr)
+
+      R_ep += r
+      #update td, q
+      ind = t + (ep-1)*solver.nb_timesteps
+      solver.stats.td_err[ind] = td
+      solver.stats.q_est[ind] = q
+      if solver.verbose
+        #update moving averages
+        td_avg = solver.expma_param*td_avg + (1.-solver.expma_param)*td
+        q_avg = solver.expma_param*q_avg + (1.-solver.expma_param)*q
+      end
+
       if gamma == 0.
         break
       end
@@ -63,7 +126,23 @@ function solve(solver::Solver,bbm::BlackBoxModel,policy::Policy)
       phi = phi_
     end #t
 
+    #update R_tot
+    solver.stats.R_tot[ep] = R_ep
+    if solver.verbose && (mod(ep,solver.display_interval) == 0)
+      #update R_avg
+      R_avg = solver.expma_param*R_avg + (1.-solver.expma_param)*R_ep
+      #display moving averages
+      print("\r")
+      print("Episode $ep, \tAvg Reward: $R_avg, \tAvg TD Error: $td_avg, \tAvg Q-value: $q_avg")
+    end
+
+
   end #ep
+
+  if solver.grandiloquent
+    #plot each of the major statistics
+    display_stats(solver.stats)
+  end
 
   #return something--policy? stats?
   return Policy(policy,solver.updater)
