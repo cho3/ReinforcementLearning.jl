@@ -8,13 +8,15 @@ type Simulator
   nb_timesteps::Int
   verbose::Bool
   display_interval::Int
+  visualizer::Function
   function Simulator(;discount::Float64=0.99,
                       simRNG::AbstractRNG=MersenneTwister(234234),
                       actRNG::AbstractRNG=MersenneTwister(98765432436),
                       nb_sim::Int=100,
                       nb_timesteps::Int=100,
                       verbose::Bool=true,
-                      display_interval::Int=10)
+                      display_interval::Int=10,
+                      visualizer::Function=__visualizer)
     self = new()
     self.discount = discount
     self.simRNG = simRNG
@@ -23,6 +25,7 @@ type Simulator
     self.nb_timesteps = nb_timesteps
     self.verbose = verbose
     self.display_interval = display_interval
+    self.visualizer = visualizer
 
     return self
   end
@@ -44,6 +47,9 @@ function simulate(sim::Simulator,bbm::BlackBoxModel,policy::Policy)
       v = std(R_net[1:ep])
       print("Simulation $(ep), Average Total Reward: $(u), 95% Confidence Interval: ($(u-1.94*v),$(u+1.94*v))")
     end
+  end
+  if sim.visualizer != __visualizer
+    __viz_sim(sim,bbm,policy)
   end
   #compute relevant statistic, e.g.
   return mean(R_net)
@@ -68,3 +74,29 @@ function __simulate(sim::Simulator,bbm::BlackBoxModel,policy::Policy)
   end #t
   return R_tot
 end
+
+function __viz_sim(sim::Simulator,bbm::BlackBoxModel,policy::Policy)
+
+  s = init(bbm,sim.simRNG)
+  a = action(policy,s) #TODO: stuff
+  S = typeof(s)[s]
+  A = typeof(a)[a]
+  for t = 0:(sim.nb_timesteps-1)
+    r, s_ = next(bbm,a,sim.simRNG)
+    a_ = action(policy,s_)
+    push!(S,s)
+    push!(A,a)
+    gamma = isterminal(bbm,a_,sim.simRNG) ? 0. : sim.discount^t
+    if gamma == 0.
+      break
+    end
+    #push the update frame up one time step as it were
+    s = s_
+    a = a_
+  end #t
+  f = figure()
+  @manipulate for i = 1:length(S); withfig(f) do
+    sim.visualizer(bbm.model,S[i],A[i]) end
+  end
+end
+__visualizer{S,T}(s::Array{S,1},a::Array{T,1}) = print("Empty Visualizer")

@@ -23,23 +23,41 @@ solvers/
 """
 
 #TODO: can probably add an additional layer of abstraction:
-"""
-abstract Regressor
-type LinearRegressor <: Regressor
-  w::Array{Float64}
-end
-predict(r::LinearRegressor,phi) = dot(r.w,phi)
-
-type NeuralNetworkRegressor <: Regressor
-  #probably just hold someone elses implementation parameters
-end
+#"""
+#abstract Regressor
+#type LinearRegressor <: Regressor
+  #w::Array{Float64}
+#end
+#predict(r::LinearRegressor,phi) = dot(r.w,phi)
+#
+#type NeuralNetworkRegressor <: Regressor
+  ##probably just hold someone elses implementation parameters
+#end
 #etc....
-"""
+#"""
 #TODO: turn into a module....
 
+module ReinforcementLearning
+
+export Model
+export ActionSpace, domain
+export DiscreteActionSpace
+export BlackBoxModel, init, isterminal, next
+export generate_tilecoder
+export EpsilonGreedyPolicy, SoftmaxPolicy, Policy
+export Solver, Simulator, solve, simulate
+export ForgetfulLSTDParam, SARSAParam, TrueOnlineTDParam
+export Minibatcher, NullMinibatcher
+export AnnealerParam, NullAnnealer
+export ExperienceReplayer, NullExperienceReplayer
+
 using PyPlot #for solver.grandiloquent
+using Interact
 import StatsBase: sample, WeightVec #for policy.SoftmaxPolicy
 using HypothesisTests #for utils.test...
+
+
+#typealias Uses_2nd_A Union{SARSAParam}
 
 typealias RealVector Union{Array{Float64,1},Array{Int,1},SparseMatrixCSC{Float64,Int},SparseMatrixCSC{Int,Int}}
 typealias RealMatrix Union{Array{Float64,2},Array{Int,2},SparseMatrixCSC{Float64,Int},SparseMatrixCSC{Int,Int}}
@@ -62,13 +80,23 @@ abstract Policy
 abstract Model
 
 include("BlackBoxModel.jl")
+
 include("policy.jl")
+
 include("simulator.jl")
+
 include("learners.jl")
+
 include(joinpath("solvers","__solvers.jl"))
-"""
-for solver in filter(isfile,readdir())
-  include(joinpath("solvers",solver))
-end
-"""
+
+#"""
+#for solver in filter(isfile,readdir())
+#  include(joinpath("solvers",solver))
+#end
+#"""
+
 include("solve.jl")
+
+include("utils.jl")
+
+end #mdule

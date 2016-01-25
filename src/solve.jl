@@ -5,24 +5,30 @@ type SolverHistory
   R_tot::Array{Float64,1}
   td_err::Array{Float64,1}
   q_est::Array{Float64,1}
+  w_norm::Array{Float64,1}
 end
 
 function display_stats(stats::SolverHistory)
   #subplot
-  subplot(311)
+  subplot(411)
   plot(stats.R_tot)
   xlabel("Episode")
   ylabel("Total Reward")
 
-  subplot(312)
+  subplot(412)
   plot(stats.td_err)
   xlabel("Time Step")
   ylabel("TD Error")
 
-  subplot(313)
+  subplot(413)
   plot(stats.q_est)
   xlabel("Time Step")
   ylabel("Q Value Estimate")
+
+  subplot(414)
+  plot(stats.w_norm)
+  xlabel("Time Step")
+  ylabel("||w||_2")
 
   suptitle("Reinforcement Learning Statistics and Metrics")
 
@@ -71,7 +77,8 @@ type Solver
     self.display_interval = display_interval
     self.grandiloquent = grandiloquent
     self.expma_param = expma_param
-    self.stats = SolverHistory(zeros(nb_episodes),zeros(nb_episodes*nb_timesteps),zeros(nb_episodes*nb_timesteps))
+    self.stats = SolverHistory(zeros(nb_episodes),zeros(nb_episodes*nb_timesteps),
+                  zeros(nb_episodes*nb_timesteps),zeros(nb_episodes*nb_timesteps))
 
     return self
   end
@@ -92,25 +99,29 @@ function solve(solver::Solver,bbm::BlackBoxModel,policy::Policy)
     td_avg = 0.
     q_avg = 0.
   end
+  ind = 1
   for ep = 1:solver.nb_episodes
     #episode setup stuff
     R_ep = 0.
     s = init(bbm)
-    a = action(policy,updater,s)
+    a = action(policy,solver.updater,s)
     phi = policy.feature_function(s,a)
     for t = 1:solver.nb_timesteps
       r, s_ = next(bbm,a)
-      a_ = action(policy,updater,s_)
+      a_ = action(policy,solver.updater,s_)
       phi_ = policy.feature_function(s_,a_)
-      gamma = isterminal(bbm,a_) ? 0. : solver.discount
+      #second expression does nothing
+      gamma = (isterminal(bbm,a_) || (t > solver.nb_timesteps)) ? 0. : solver.discount
       #NOTE: using s,a,r,s_,a_ for maximum generality
       td, q = update!(solver.updater,solver.annealer,solver.mb,solver.er,phi,a,r,phi_,a,gamma,solver.lr)
 
       R_ep += r
       #update td, q
-      ind = t + (ep-1)*solver.nb_timesteps
+      #ind = t + (ep-1)*solver.nb_timesteps
       solver.stats.td_err[ind] = td
       solver.stats.q_est[ind] = q
+      solver.stats.w_norm[ind] = norm(weights(solver.updater))
+      ind += 1
       if solver.verbose
         #update moving averages
         td_avg = solver.expma_param*td_avg + (1.-solver.expma_param)*td

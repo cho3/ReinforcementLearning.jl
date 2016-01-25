@@ -50,9 +50,14 @@ end
 type AdadeltaAnnealer <: AnnealerParam
   mu::Float64
   fuzz::Float64
+  dw2::RealVector
+  dx2::RealVector
 end
 function anneal!(an::AdadeltaAnnealer,dw::RealVector)
-
+  an.dw2 = an.mu*an.dw2 + (1-an.mu)*(dw.^2)
+  dx = dw.*sqrt(an.dx2 + an.fuzz)./sqrt(an.dw2 + an.fuzz)
+  an.dx2 = an.mu*an.dx2 + (1.-an.mu)*(dx.^2)
+  return dx
 end
 
 #RMSProp update

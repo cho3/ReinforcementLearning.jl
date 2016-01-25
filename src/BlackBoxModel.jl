@@ -47,22 +47,22 @@ end
 
 function init(bbm::BlackBoxModel,rng::AbstractRNG=bbm.rng)
   bbm.state = bbm.init(bbm.model,rng)
-  o = bbm.observe(bbm.model,rng,bbm.state)
+  o = bbm.observe(rng,bbm.model,bbm.state)
   return o
   #emit an initial observation? or is it required that you take an action first
 end
 
 function next{T}(bbm::BlackBoxModel, action::T,rng::AbstractRNG=bbm.rng)
-  bbm.state = bbm.next_state(bbm.model,rng,bbm.state,action)
-  o = bbm.observe(bbm.model,rng,bbm.state,action)
-  r = bbm.reward(bbm.model,rng,bbm.state,action)
+  bbm.state = bbm.next_state(rng,bbm.model,bbm.state,action)
+  o = bbm.observe(rng,bbm.model,bbm.state,action)
+  r = bbm.reward(rng,bbm.model,bbm.state,action)
   return r,o
 end
 
 function isterminal{T}(bbm::BlackBoxModel,action::T,rng::AbstractRNG=bbm.rng)
-  return bbm.isterminal(bbm.model,rng,bbm.state,action)
+  return bbm.isterminal(rng,bbm.model,bbm.state,action)
 end
 
 "Base implementation of observe for fully observed models"
-__observe{S,T}(m::Model,rng::AbstractRNG,state::S,action::T) = state
-__observe{S}(m::Model,rng::AbstractRNG,state::S) = state
+__observe{S,T}(rng::AbstractRNG,m::Model,state::S,action::T) = state
+__observe{S}(rng::AbstractRNG,m::Model,state::S) = state

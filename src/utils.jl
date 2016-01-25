@@ -53,11 +53,22 @@ function test(generator::Function,distribution::Function,input;
     push!(probs,pdf(d,s)) #TODO: require pdf to be defined
   end
   #get statistics
-  stats = PowerDivergenceTest(counts,probs,lambda)
+  #NOTE: API for PowerDivergenceTest is kinda wonky--dont feel like figuring it out attempt
+  #println(counts_dict)
+  #println(counts)
+  #println(probs)
+  if length(probs) == 1
+    if (sum(probs) != 1.) || (length(counts) != 1)
+      error("There is an issue with something")
+    end
+    return
+  end
+  stats = ChisqTest(counts,probs)
+  #stats = PowerDivergenceTest(counts,probs,lambda)
 
   #test statistics
   if pvalue(stats) < p_reject
-    println("Error: Generator generates from a different distribution than provided with probability $(pvalue(stats)), less than threshold of $p_reject")
+    println("Error: Generator generates from the same distribution than provided with probability $(pvalue(stats)), less than threshold of $p_reject")
     println("\tPlease check your code")
     error("Inconsistent generator and distribution")
   end
@@ -103,7 +114,7 @@ function generate_tilecoder(nb_tiles::Int,
       state_ = state + offsets[:,i]
 
       fs = round(Int,floor(state_-lb)./interval_sizes)
-      fs = max(min(fs,nb_intervals),0)
+      fs = max(min(fs,nb_intervals-1),0)
 
       ft = 0 #TODO
 
