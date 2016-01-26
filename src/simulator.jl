@@ -1,5 +1,11 @@
 #simulator.jl
 #just run a simulation of the black box model using a learned policy and collect statistics
+type History
+  S
+  A
+end
+History() = History(0,0)
+
 type Simulator
   discount::Float64
   simRNG::AbstractRNG
@@ -9,6 +15,7 @@ type Simulator
   verbose::Bool
   display_interval::Int
   visualizer::Function
+  hist::History
   function Simulator(;discount::Float64=0.99,
                       simRNG::AbstractRNG=MersenneTwister(234234),
                       actRNG::AbstractRNG=MersenneTwister(98765432436),
@@ -26,6 +33,7 @@ type Simulator
     self.verbose = verbose
     self.display_interval = display_interval
     self.visualizer = visualizer
+    self.hist = History()
 
     return self
   end
@@ -45,7 +53,7 @@ function simulate(sim::Simulator,bbm::BlackBoxModel,policy::Policy)
       print("\r")
       u = mean(R_net[1:ep])
       v = std(R_net[1:ep])
-      print("Simulation $(ep), Average Total Reward: $(u), 95% Confidence Interval: ($(u-1.94*v),$(u+1.94*v))")
+      print("Simulation $(ep), Average Total Reward: $(round(u,3)), 95% Confidence Interval: ($(round(u-1.94*v,3)),$(round((u+1.94*v),3))")
     end
   end
   if sim.visualizer != __visualizer
@@ -63,9 +71,9 @@ function __simulate(sim::Simulator,bbm::BlackBoxModel,policy::Policy)
   for t = 0:(sim.nb_timesteps-1)
     r, s_ = next(bbm,a,sim.simRNG)
     a_ = action(policy,s_)
-    gamma = isterminal(bbm,a_,sim.simRNG) ? 0. : sim.discount^t
+    gamma = sim.discount^t
     R_tot += gamma*r
-    if gamma == 0.
+    if isterminal(bbm,a_,sim.simRNG)
       break
     end
     #push the update frame up one time step as it were
@@ -84,16 +92,20 @@ function __viz_sim(sim::Simulator,bbm::BlackBoxModel,policy::Policy)
   for t = 0:(sim.nb_timesteps-1)
     r, s_ = next(bbm,a,sim.simRNG)
     a_ = action(policy,s_)
-    push!(S,s)
-    push!(A,a)
-    gamma = isterminal(bbm,a_,sim.simRNG) ? 0. : sim.discount^t
-    if gamma == 0.
+    push!(S,s_)
+    push!(A,a_)
+    if isterminal(bbm,a_,sim.simRNG)
+      r, s_ = next(bbm,a,sim.simRNG)
+      a_ = action(policy,s_)
+      push!(S,s_)
+      push!(A,a_)
       break
     end
     #push the update frame up one time step as it were
     s = s_
     a = a_
   end #t
+  sim.hist = History(S,A)
   f = figure()
   @manipulate for i = 1:length(S); withfig(f) do
     sim.visualizer(bbm.model,S[i],A[i]) end

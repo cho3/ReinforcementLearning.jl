@@ -8,6 +8,12 @@ type SolverHistory
   w_norm::Array{Float64,1}
 end
 
+function truncate!(stats::SolverHistory,ind::Int)
+  stats.td_err = stats.td_err[1:ind]
+  stats.q_est = stats.q_est[1:ind]
+  stats.w_norm = stats.w_norm[1:ind]
+end
+
 function display_stats(stats::SolverHistory)
   #subplot
   subplot(411)
@@ -124,7 +130,7 @@ function solve(solver::Solver,bbm::BlackBoxModel,policy::Policy)
       ind += 1
       if solver.verbose
         #update moving averages
-        td_avg = solver.expma_param*td_avg + (1.-solver.expma_param)*td
+        td_avg = solver.expma_param*td_avg + (1.-solver.expma_param)*abs(td)
         q_avg = solver.expma_param*q_avg + (1.-solver.expma_param)*q
       end
 
@@ -144,12 +150,12 @@ function solve(solver::Solver,bbm::BlackBoxModel,policy::Policy)
       R_avg = solver.expma_param*R_avg + (1.-solver.expma_param)*R_ep
       #display moving averages
       print("\r")
-      print("Episode $ep, \tAvg Reward: $R_avg, \tAvg TD Error: $td_avg, \tAvg Q-value: $q_avg")
+      print("Episode $ep, \tAvg Reward: $(round(R_avg,3)), \tAvg Abs. TD Error: $(round(td_avg,3)), \tAvg Q-value: $(round(q_avg,3))")
     end
 
 
   end #ep
-
+  truncate!(solver.stats,ind)
   if solver.grandiloquent
     #plot each of the major statistics
     display_stats(solver.stats)

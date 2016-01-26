@@ -296,3 +296,99 @@ function update!{T}(param::DoubleQParam,
     return del, QB
   end
 end
+
+###############################################
+#LSPolicyIteration
+
+
+type LSPIParam <: UpdaterParam
+  w::RealVector
+  d::Int
+  D::Int
+  del::Float64
+  discount::Float64
+end
+weights(p::LSPIParam) = p.w
+
+function update!{T}(param::LSPIParam,
+                    annealer::AnnealerParam,
+                    mb::Minibatcher,
+                    er::ExperienceReplayer,
+                    phi::RealVector,
+                    a::T,
+                    r::Union{Float64,Int},
+                    phi_::RealVector,
+                    a_::T,
+                    gamma::Float64,
+                    lr::Float64)
+  phi,a,r,phi_,a_ = replay!(er,phi,a,r,phi_,a_)
+
+  if param.d < param.D
+    param.d += 1
+    return 0.,0. #collecting experience
+  end
+
+  param.d = 0
+  k = length(phi)
+  B = eye(k)/param.del
+  b = zeros(k)
+
+  for exp in er.experience
+    f = exp.phi
+    f_ = exp.phi_
+    R = exp.r
+
+    B -= B*f*transpose(f-param.discount*f_)*B
+    b += f*R
+  end
+
+  param.w = B*b
+
+  return 0.,0.
+
+end
+
+
+
+
+
+
+
+type LSPISolver
+  B::RealMatrix
+  b::RealVector
+  w::RealVector
+  del::Float64
+  updater::UpdaterParam
+  er::ExperienceReplayer
+  function LSPISolver(nb_feat::Int,updater::UpdaterParam,er::ExperienceReplayer;
+                      del::Float64=0.01)
+    self = new()
+
+    self.B = eye(nb_feat)./del
+    self.b = zeros(nb_feat)
+    self.updater = updater()
+    self.w = weights(updater)
+    assert(length(self.w) == nb_feat)
+    self.er = er
+
+    return self
+  end
+end
+
+
+
+#vv this is wrong--should cast it in the normal form
+function __LSTDQ(solver::LSPISolver)
+  #maybe B and b are supposed to be initialized here
+  for exp in er.experience
+
+  end
+
+  return solver.B*solver.b
+end
+
+function solve(solver::LSPISolver)
+
+end
+##############################################

@@ -28,6 +28,9 @@ function action{T}(p::DiscretePolicy,s::T)
   end
   return domain(p.A)[indmax(Qs)]
 end
+value{S,T}(p::DiscretePolicy,s::S,a::T) = dot(p.weights,p.feature_function(s,a))
+values{T}(p::DiscretePolicy,s::T) = [value(s,a) for a in p.A]
+value{T}(p::DiscretePolicy,s::T) = maximum(values(p,s))
 
 abstract ExplorationPolicy <: Policy
 #NOTE: exploration policies are only called while solving, so its ok for them to have
