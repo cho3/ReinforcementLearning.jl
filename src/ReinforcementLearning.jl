@@ -35,25 +35,24 @@ solvers/
 #end
 #etc....
 #"""
-#TODO: turn into a module....
 
 module ReinforcementLearning
 
 export Model
-export ActionSpace, domain
-export DiscreteActionSpace
+export ActionSpace, domain, DiscreteActionSpace
 export BlackBoxModel, init, isterminal, next
-export generate_tilecoder
-export EpsilonGreedyPolicy, SoftmaxPolicy, Policy
+export generate_tilecoder, test
+export EpsilonGreedyPolicy, SoftmaxPolicy, Policy, DiscretePolicy, weights, action
 export Solver, Simulator, solve, simulate
-export ForgetfulLSTDParam, SARSAParam, TrueOnlineTDParam
-export Minibatcher, NullMinibatcher
-export AnnealerParam, NullAnnealer
-export ExperienceReplayer, NullExperienceReplayer
+export ForgetfulLSTDParam, SARSAParam, TrueOnlineTDParam, LSPIParam
+export Minibatcher, NullMinibatcher, UniformMinibatcher
+export AnnealerParam, NullAnnealer, MomentumAnnealer, NesterovAnnealer, AdagradAnnealer,AdadeltaAnnealer, AdamAnnealer,RMSPropAnnealer
+export ExperienceReplayer, NullExperienceReplayer, UniformExperienceReplayer
 
 using PyPlot #for solver.grandiloquent
 using Interact
 import StatsBase: sample, WeightVec #for policy.SoftmaxPolicy
+import Base.dot
 using HypothesisTests #for utils.test...
 
 

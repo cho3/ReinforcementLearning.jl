@@ -9,6 +9,10 @@ function init_weights(nb_feat::Int,method::AbstractString="unif_rand";
     return 2*(rand(rng,nb_feat)-0.5)/sqrt(nb_feat)
   elseif lowercase(method) == "zero"
     return zeros(nb_feat)
+  elseif lowercase(method) == "one"
+    return ones(nb_feat)
+  elseif lowercase(method) == "optimistic"
+    return 10*ones(nb_feat)
   else
     error("No such initialization method: $method")
   end
@@ -124,8 +128,8 @@ function update!{T}(param::SARSAParam,
     param.e = vec(phi + param.e)
   end
   dw = vec(del*param.e)
-  param.w += lr.*anneal!(annealer,minibatch!(mb,dw))
-  param.e *= gamma*param.lambda
+  param.w = param.w + anneal!(annealer,minibatch!(mb,dw),lr)
+  param.e = gamma*param.lambda*param.e
   return del, q
 end
 
@@ -176,7 +180,7 @@ function update!{T}(param::QParam,
     param.e = vec(phi + param.e)
   end
   dw = vec(del*param.e)
-  param.w += lr.*anneal!(annealer,minibatch!(mb,dw))
+  param.w += anneal!(annealer,minibatch!(mb,dw),lr)
   param.e *= gamma*param.lambda
   return del, q
 end
@@ -232,7 +236,7 @@ function update!{T}(param::TrueOnlineTDParam,
   del = r + gamma*q_ - q #td error
   param.e = vec(gamma*param.lambda*param.e + phi - lr*gamma*param.lambda*dot(param.e,phi)*phi)
   dw = vec((del+q-param.q_old)*param.e - (q - param.q_old)*phi)
-  param.w += lr.*anneal!(annealer,minibatch!(mb,dw))
+  param.w += anneal!(annealer,minibatch!(mb,dw),lr)
   param.q_old = q_
   return del, q
 end
@@ -285,14 +289,14 @@ function update!{T}(param::DoubleQParam,
     QA = dot(param.wA,phi)
     del = r + discount*QB_ - QA
     dw = del*phi
-    param.wA += lr*anneal!(annealer.B,minibatch!(mb.B,dw))
+    param.wA += anneal!(annealer.B,minibatch!(mb.B,dw),lr)
     return del, QA
   else
     QA_ = dot(param.wA,phi_)
     QB = dot(param.wB,phi)
     del = r + discount*QA_ - QB
     dw = del*phi
-    param.wB += lr*anneal!(annealer.B,minibatch!(mb.B,dw))
+    param.wB += anneal!(annealer.B,minibatch!(mb.B,dw),lr)
     return del, QB
   end
 end
@@ -305,11 +309,36 @@ type LSPIParam <: UpdaterParam
   w::RealVector
   d::Int
   D::Int
+  B::RealMatrix
+  b::RealVector
   del::Float64
   discount::Float64
+  tol::Float64
+  done_flag::Bool
+  function LSPIParam(nb_feat::Int, D::Int;
+                      init_method::AbstractString="unif_rand",
+                      del::Float64=0.01,
+                      discount::Float64=0.99,
+                      tol::Float64=0.001)
+    self = new()
+    self.w = init_weights(nb_feat,init_method)
+    self.d = 0
+    self.D = D
+    self.del = del
+    self.discount = discount
+    self.tol = tol
+    self.done_flag = false
+    self.B = eye(nb_feat)/del
+    self.b = zeros(nb_feat)
+    return self
+  end
 end
 weights(p::LSPIParam) = p.w
+isdone(p::LSPIParam) = p.done_flag
 
+
+##TODO: make this an online algorithm that accumulates the values, and resets after
+#     D interval (updates w, resets B,b every D timesteps)
 function update!{T}(param::LSPIParam,
                     annealer::AnnealerParam,
                     mb::Minibatcher,
@@ -323,72 +352,97 @@ function update!{T}(param::LSPIParam,
                     lr::Float64)
   phi,a,r,phi_,a_ = replay!(er,phi,a,r,phi_,a_)
 
+  #print("\rUpdating Policy...")
+
+  param.B -= vec(param.B*phi)*(transpose(phi-gamma*phi_)*param.B)
+  param.b = vec(param.b+phi*r)
+
   if param.d < param.D
     param.d += 1
-    return 0.,0. #collecting experience
+  else
+    w = vec(param.B*param.b)
+    if norm(w - param.w) < param.tol
+      param.done_flag = true
+    end
+    param.w = w
+    param.d = 0
+    param.B = eye(length(phi))/param.del
+    param.b = zeros(length(phi))
   end
-
-  param.d = 0
-  k = length(phi)
-  B = eye(k)/param.del
-  b = zeros(k)
-
-  for exp in er.experience
-    f = exp.phi
-    f_ = exp.phi_
-    R = exp.r
-
-    B -= B*f*transpose(f-param.discount*f_)*B
-    b += f*R
-  end
-
-  param.w = B*b
 
   return 0.,0.
 
 end
 
+##############################################
 
-
-
-
-
-
-type LSPISolver
-  B::RealMatrix
-  b::RealVector
+#iFDD
+type iFDDParam <:UpdaterParam
   w::RealVector
-  del::Float64
-  updater::UpdaterParam
-  er::ExperienceReplayer
-  function LSPISolver(nb_feat::Int,updater::UpdaterParam,er::ExperienceReplayer;
-                      del::Float64=0.01)
-    self = new()
+  learned_features::Array{Tuple{Int,Int},1}
+  learned_feature_set::Set{Tuple{Int,Int}}
+  err_dict::Dict{Tuple{Int,Int},Float64}
+  app_dict::Dict{Tuple{Int,Int},Int}
+  xi::Float64 #[0.1,0.2,0.5] cutoff criterion
+  #other stuff
+end
 
-    self.B = eye(nb_feat)./del
-    self.b = zeros(nb_feat)
-    self.updater = updater()
-    self.w = weights(updater)
-    assert(length(self.w) == nb_feat)
-    self.er = er
-
-    return self
+function expand_features(updater::iFDDParam,phi::RealVector)
+  _phi = zeros(length(updater.learned_features))
+  offset = length(phi)
+  phi = vcat(phi,_phi)
+  #NOTE: order matters for learned features!
+  for (k,(i,j)) in enumerate(updater.learned_features)
+    if (phi[i] > 0) && (phi[j] > 0)
+      phi[offset+k] = 1.
+    end
   end
+  return phi
 end
 
+function update_dicts(updater::iFDDParam,phi::RealVector,del::Float64)
+  active_indices = find(phi)
+  for i in active_indices
+    for j in active_indices
+      #enforce ordering on (i,j) pairs
+      #TODO: maintain set of learned pairs for collision detection
+      if (i >= j) || ((i,j,) in updater.learned_feature_set)
+        break
+      end
+      err = get(updater.err_dict,(i,j),0.) + del
+      updater.err_dict[(i,j)] = err
+      count = get(updater.app_dict,(i,j),0) + 1
+      updater.app_dict[(i,j)] = count
+      if err/count > updater.xi
+        push!(updater.learned_features,(i,j))
+        push!(updater.learned_feature_set,(i,j))
+        #delete from err_dict, app_dict?
+      end
 
+    end #j
+  end #i
+end
 
-#vv this is wrong--should cast it in the normal form
-function __LSTDQ(solver::LSPISolver)
-  #maybe B and b are supposed to be initialized here
-  for exp in er.experience
-
+function action{T}(policy::EpsilonGreedyPolicy,updater::iFDDParam,s::T)
+  #darn it thought i could just cast it :(
+  r = rand(p.rng)
+  if r < p.eps
+    return domain(p.A)[rand(p.rng,1:length(p.A))]
   end
-
-  return solver.B*solver.b
+  Qs = zeros(length(p.A))
+  for (i,a) in enumerate(domain(p.A))
+    #NOTE: here, case feature function
+    Qs[i] = dot(weights(u),expand_features(updater,p.feature_function(s,a))) #where is a sensible place to put w?
+  end
+  return domain(p.A)[indmax(Qs)]
 end
 
-function solve(solver::LSPISolver)
+#TODO: softmax policy
+#TODO: DiscretePolicy
 
-end
+#TODO: solve--expand feaures first
+
+
+
+
 ##############################################

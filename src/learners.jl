@@ -4,7 +4,7 @@
 #Vanilla annealer
 type NullAnnealer <: AnnealerParam end
 AnnealerParam() = NullAnnealer()
-anneal!(::AnnealerParam,dw::RealVector) = dw
+anneal!(::AnnealerParam,dw::RealVector,lr::Float64) = lr*dw
 
 #TODO:
 """
@@ -20,7 +20,7 @@ type MomentumAnnealer <:AnnealerParam
   v::RealVector #having just  single array may be insufficient for more complex things
   mu::Float64 #[0.5, 0.9, 0.95, 0.99]
 end
-function anneal!(an::MomentumAnnealer,dw::RealVector)
+function anneal!(an::MomentumAnnealer,dw::RealVector,lr::Float64)
   an.v = an.mu*an.v - lr*dw #TODO: how to handle lr btwn stuff
   return an.v
 end
@@ -30,7 +30,7 @@ type NesterovAnnealer <: AnnealerParam
   v::RealVector
   mu::Float64
 end
-function anneal!(an::NesterovAnnealer, dw::RealVector)
+function anneal!(an::NesterovAnnealer, dw::RealVector,lr::Float64)
   v_prev = an.v
   v = an.mu*an.v - lr*dw #TODO: how to handle lr btwn tuff
   return -an.mu*v_prev + (1 + an.mu)*v
@@ -41,9 +41,9 @@ type AdagradAnnealer <: AnnealerParam
   cache::RealVector
   fuzz::Float64 #1e-8
 end
-function anneal!(an::AdagradAnnealer,dw::RealVector)
+function anneal!(an::AdagradAnnealer,dw::RealVector,lr::Float64)
   an.cache += dw.^2
-  return dw./sqrt(an.cache + an.fuzz)
+  return lr*dw./sqrt(an.cache + an.fuzz)
 end
 
 #Adadelta update
@@ -53,11 +53,11 @@ type AdadeltaAnnealer <: AnnealerParam
   dw2::RealVector
   dx2::RealVector
 end
-function anneal!(an::AdadeltaAnnealer,dw::RealVector)
+function anneal!(an::AdadeltaAnnealer,dw::RealVector,lr::Float64)
   an.dw2 = an.mu*an.dw2 + (1-an.mu)*(dw.^2)
   dx = dw.*sqrt(an.dx2 + an.fuzz)./sqrt(an.dw2 + an.fuzz)
   an.dx2 = an.mu*an.dx2 + (1.-an.mu)*(dx.^2)
-  return dx
+  return lr*dx
 end
 
 #RMSProp update
@@ -66,9 +66,9 @@ type RMSPropAnnealer <: AnnealerParam
   fuzz::Float64 #1e-8
   decay_rate::Float64 #[0.9; 0.99; 0.999]
 end
-function anneal!(an::RMSPropAnnealer,dw::RealVector)
+function anneal!(an::RMSPropAnnealer,dw::RealVector,lr::Float64)
   an.cache = an.decay_rate*an.cache + (1.-an.decay_rate)*(dw.^2)
-  return dw./sqrt(an.cache + an.fuzz)
+  return lr*dw./sqrt(an.cache + an.fuzz)
 end
 
 #ADAM update
@@ -80,13 +80,13 @@ type AdamAnnealer <: AnnealerParam
   fuzz::Float64 #1e-8
   t::Int #init 0
 end
-function anneal!(an::AdamAnnealer,dw::RealVector)
+function anneal!(an::AdamAnnealer,dw::RealVector,lr::Float64)
   an.t += 1
   an.v = an.mu*an.v+ (1.-an.mu)*dw
   an.u = an.nu*an.u + (1.-an.nu)*(dw.^2)
   v_ = an.v./(1-an.mu^an.t)
   u_ = an.u./(1.-an.nu^an.t)
-  return v_./(sqrt(u_) + an.fuzz)
+  return lr*v_./(sqrt(u_) + an.fuzz)
 end
 
 ######################################
@@ -108,6 +108,13 @@ type UniformExperienceReplayer <: ExperienceReplayer
   memory::Array{Experience,1}
   nb_mem::Int
   rng::AbstractRNG
+  function UniformExperienceReplayer(nb_mem::Int;rng::AbstractRNG=MersenneTwister(21321))
+    self = new()
+    self.nb_mem = nb_mem
+    self.rng = rng
+    self.memory = Experience[]
+    return self
+  end
 end
 function replay!{T}(er::UniformExperienceReplayer,
                   phi::RealVector,
@@ -123,8 +130,8 @@ function replay!{T}(er::UniformExperienceReplayer,
     #is it more memory efficient to delete somehow first?
     er.memory[ind] = e
   end
-  ind = rand(er.rng,1:er.nb_mem)
-  return remember(er.mem[ind])
+  ind = rand(er.rng,1:length(er.memory))
+  return remember(er.memory[ind])
 end
 
 

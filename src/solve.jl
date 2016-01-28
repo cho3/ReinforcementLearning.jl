@@ -155,7 +155,7 @@ function solve(solver::Solver,bbm::BlackBoxModel,policy::Policy)
 
 
   end #ep
-  truncate!(solver.stats,ind)
+  truncate!(solver.stats,ind-1)
   if solver.grandiloquent
     #plot each of the major statistics
     display_stats(solver.stats)

@@ -64,5 +64,5 @@ function isterminal{T}(bbm::BlackBoxModel,action::T,rng::AbstractRNG=bbm.rng)
 end
 
 "Base implementation of observe for fully observed models"
-__observe{S,T}(rng::AbstractRNG,m::Model,state::S,action::T) = state
-__observe{S}(rng::AbstractRNG,m::Model,state::S) = state
+__observe{S,T}(rng::AbstractRNG,m::Model,state::S,action::T) = deepcopy(state)
+__observe{S}(rng::AbstractRNG,m::Model,state::S) = deepcopy(state)
