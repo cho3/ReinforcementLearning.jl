@@ -165,7 +165,7 @@ function generate_radial_basis{T}(exemplars::Array{T,1},sigma::Union{Real,Array{
     for i = 1:length(exemplars)
       phi[i] = exp(-dist(s,exemplars[i])./(2*sigma[i]))
     end
-    return exemplars
+    return phi
   end
   return feature_function
 end

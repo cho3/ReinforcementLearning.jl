@@ -167,7 +167,7 @@ end
 
 expand{T}(exp::FeatureExpander,phi::RealVector,a::T) = phi
 expand(exp::FeatureExpander,phi::RealVector) = phi
-update!(::FeatureExpander,phi::RealVector,del::Float64) = false
+update!(::FeatureExpander,phi::RealVector,del::Float64) = 0
 
 type NullFeatureExpander{T} <: ActionFeatureExpander
   A_indices::Dict{T,Int}
@@ -180,13 +180,23 @@ type NullFeatureExpander{T} <: ActionFeatureExpander
   =#
 end
 NullFeatureExpander{T}(A::DiscreteActionSpace{T}) = NullFeatureExpander(Dict{T,Int}([a=>i for (i,a) in enumerate(domain(A))]))
-function expand{T}(exp::ActionFeatureExpander,phi::RealVector,a::T)
+
+#NOTE: this one assumes binary sparse features
+function expand{T}(exp::ActionFeatureExpander,phi::Union{SparseMatrixCSC{Float64,Int},SparseMatrixCSC{Int,Int}},a::T)
   active_indices = find(phi)
   nb_feat = length(phi)
   active_indices += nb_feat*(exp.A_indices[a]-1)
   return sparsevec(active_indices,ones(length(active_indices)),nb_feat*length(exp.A_indices))
 end
-update!(::NullFeatureExpander,phi::RealVector,del::Float64) = false
+
+#NOTE: this one assumes dense features which might not be binary
+function expand{T}(exp::ActionFeatureExpander,phi::Union{Array{Float64,1},Array{Int,1}},a::T)
+  _phi = zeros(length(phi)*length(exp.A_indices))
+  _phi[1+length(phi)*(exp.A_indices[a]-1):length(phi)*exp.A_indices[a]] = phi
+  return _phi
+end
+
+update!(::NullFeatureExpander,phi::RealVector,del::Float64) = 0
 
 type iFDDExpander{T} <: ActionFeatureExpander
   A_indices::Dict{T,Int}
@@ -218,11 +228,12 @@ function expand(expander::iFDDExpander,phi::RealVector)
       phi[offset+k] = 1.
     end
   end
-  return expand(expander::ActionFeatureExpander,phi)
+  return phi
 end
 
 function update!(expander::iFDDExpander,phi::RealVector,del::Float64)
   active_indices = find(phi)
+  nb_new_feat = 0
   for i in active_indices
     for j in active_indices
       #enforce ordering on (i,j) pairs
@@ -240,11 +251,15 @@ function update!(expander::iFDDExpander,phi::RealVector,del::Float64)
         #delete from err_dict, app_dict?
         delete!(expander.err_dict,(i,j))
         delete!(expander.app_dict,(i,j))
+        nb_new_feat += 1
       end
     end #j
   end #i
+  return nb_new_feat
 end
 
+pad!(x::SparseMatrixCSC,nb_new_feat::Int) = x.m += nb_new_feat
+pad!{T}(x::Array{T,1},nb_new_feat::Int) = append!(x,zeros(T,nb_new_feat))
 #=
 function action{T}(policy::EpsilonGreedyPolicy,updater::iFDDParam,s::T)
   #darn it thought i could just cast it :(

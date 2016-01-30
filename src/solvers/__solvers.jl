@@ -106,6 +106,13 @@ type SARSAParam <: UpdaterParam
   end
 end
 weights(u::SARSAParam) = u.w
+function pad!(p::SARSAParam,nb_new_feat::Int)
+  if nb_new_feat <= 0
+    return
+  end
+  pad!(p.w,nb_new_feat)
+  pad!(p.e,nb_new_feat)
+end
 
 function update!{T}(param::SARSAParam,
                   annealer::AnnealerParam,
@@ -137,7 +144,8 @@ function update!{T}(param::SARSAParam,
   dw = vec(del*param.e)
   param.w = vec(param.w + anneal!(annealer,minibatch!(mb,dw),lr))
   param.e = gamma*param.lambda*param.e
-  update!(exp,f,del)
+  nb_new_feat = update!(exp,f,del)
+  pad!(param,nb_new_feat)
   return del, q
 end
 
@@ -147,24 +155,31 @@ type QParam <: UpdaterParam
   e::RealVector
   lambda::Float64
   A::DiscreteActionSpace
-  feature_function::Function
+  #feature_function::Function
   is_replacing_trace::Bool
-  function QParam(n::Int,A::DiscreteActionSpace,ff::Function;
+  function QParam(n::Int,A::DiscreteActionSpace;
                   lambda::Float64=0.95,
                   init_method::AbstractString="unif_rand",
                   trace_type::AbstractString="replacing")
     self = new()
     self.w = init_weights(n,init_method)
-    self.e = zeros(n)
+    self.e = spzeros(n,1)
     self.lambda = lambda
     self.is_replacing_trace = lowercase(trace_type) == "replacing"
     self.A = A
-    self.feature_function = ff
+    #self.feature_function = ff
 
     return self
   end
 end
 weights(p::QParam) = p.w
+function pad!(p::QParam,nb_new_feat::Int)
+  if nb_new_feat <= 0
+    return
+  end
+  pad!(p.w,nb_new_feat)
+  pad!(p.e,nb_new_feat)
+end
 
 function update!{T}(param::QParam,
                   annealer::AnnealerParam,
@@ -179,14 +194,15 @@ function update!{T}(param::QParam,
                   gamma::Float64,
                   lr::Float64)
   phi,a,r,phi_,a_ = replay!(er,phi,a,r,phi_,a_)
-
+  #expand the state representation
   f = expand(exp,phi)
   f_ = expand(exp,phi_)
+  #expand with respect to actions
   phi = expand(exp::ActionFeatureExpander,f,a)
-  phi_ = expand(exp::ActionFeatureExpander,f_,a_)
+  #phi_ = expand(exp::ActionFeatureExpander,f_,a_)
   #NOTE: this might be a singleton array
   q = dot(param.w,phi) #TODO: dealing with feature functions that involve state and action?
-  q_ = maximum([])
+  q_ = maximum([dot(param.w,expand(exp::ActionFeatureExpander,f_,_a)) for _a in domain(param.A)])
   del = r + gamma*q_ - q #td error
   if param.is_replacing_trace
     param.e = vec(max(phi,param.e)) #NOTE: assumes binary features
@@ -194,9 +210,10 @@ function update!{T}(param::QParam,
     param.e = vec(phi + param.e)
   end
   dw = vec(del*param.e)
-  param.w += anneal!(annealer,minibatch!(mb,dw),lr)
-  param.e *= gamma*param.lambda
-  update!(exp,f,del)
+  param.w = vec(param.w + anneal!(annealer,minibatch!(mb,dw),lr))
+  param.e = gamma*param.lambda*param.e
+  nb_new_feat = update!(exp,f,del)
+  pad!(param,nb_new_feat)
   return del, q
 end
 
@@ -204,12 +221,78 @@ end
 type GQParam <: UpdaterParam
   w::RealVector
   th::RealVector
-  e::RealVector
-  lambda::Float64
-  rho::Float64
+  #e::RealVector
+  b::Float64 #learning rate for gradient corrector
+  #lambda::Float64
+  #rho::Float64
+  A::DiscreteActionSpace
+  #feature_function::Function
+  is_replacing_trace::Bool
+  function GQParam(n::Int,A::DiscreteActionSpace;
+                  #lambda::Float64=0.95,
+                  b::Float64=1e-7,
+                  init_method::AbstractString="unif_rand"
+                  #trace_type::AbstractString="replacing"
+                  )
+    self = new()
+    self.w = spzeros(n,1)#init_weights(n,"zero")
+    self.th = init_weights(n,init_method)
+    self.b = b
+    #self.e = spzeros(n,1)
+    #self.lambda = lambda
+    #self.is_replacing_trace = lowercase(trace_type) == "replacing"
+    self.A = A
+    #self.feature_function = ff
+
+    return self
+  end
 end
 weights(p::GQParam) = p.th
+function pad!(p::GQParam,nb_new_feat::Int)
+  if nb_new_feat <= 0
+    return
+  end
+  pad!(p.w,nb_new_feat)
+  pad!(p.th,nb_new_feat)
+end
 
+#NOTE: single step GQ for now (no eligbility traces)
+function update!{T}(param::GQParam,
+                  annealer::AnnealerParam,
+                  mb::Minibatcher,
+                  er::ExperienceReplayer,
+                  exp::FeatureExpander,
+                  phi::RealVector,
+                  a::T,
+                  r::Real,
+                  phi_::RealVector,
+                  a_::T,
+                  gamma::Float64,
+                  lr::Float64)
+  phi,a,r,phi_,a_ = replay!(er,phi,a,r,phi_,a_)
+  #expand the state representation
+  f = expand(exp,phi)
+  f_ = expand(exp,phi_)
+  #expand with respect to actions
+  phi = expand(exp::ActionFeatureExpander,f,a)
+  #phi_ = expand(exp::ActionFeatureExpander,f_,a_)
+  #NOTE: this might be a singleton array
+  q = dot(param.th,phi) #TODO: dealing with feature functions that involve state and action?
+  #extracting out the best next action--semi-redundant step
+  phi_s = [expand(exp::ActionFeatureExpander,f_,_a) for _a in domain(param.A)]
+  qs_ = [dot(param.th,v) for v in phi_s]
+  q_ind_ = indmax(qs_)
+  q_ = qs_[q_ind_]
+  phi_ = phi_s[q_ind_]
+  # end step
+  del = r + gamma*q_ - q #td error
+  dth = vec(del*phi-gamma*dot(param.w,phi)*phi_)
+  param.th = vec(param.th + anneal!(annealer,minibatch!(mb,dth),lr))
+  param.w = vec(param.w + param.b*(del-dot(param.w,phi))*phi)
+  nb_new_feat = update!(exp,f,del)
+  pad!(param,nb_new_feat)
+  return del, q
+end
 
 ######################################
 type TrueOnlineTDParam <: UpdaterParam
@@ -232,6 +315,14 @@ type TrueOnlineTDParam <: UpdaterParam
   end
 end
 weights(u::TrueOnlineTDParam) = u.w
+
+function pad!(p::TrueOnlineTDParam,nb_new_feat::Int)
+  if nb_new_feat <= 0
+    return
+  end
+  pad!(p.w,nb_new_feat)
+  pad!(p.e,nb_new_feat)
+end
 
 function update!{T}(param::TrueOnlineTDParam,
                   annealer::AnnealerParam,
@@ -259,7 +350,8 @@ function update!{T}(param::TrueOnlineTDParam,
   dw = vec((del+q-param.q_old)*param.e - (q - param.q_old)*phi)
   param.w += anneal!(annealer,minibatch!(mb,dw),lr)
   param.q_old = q_
-  update!(exp,f,del)
+  nb_new_feat = update!(exp,f,del)
+  pad!(param,nb_new_feat)
   return del, q
 end
 
@@ -284,6 +376,14 @@ type DoubleQParam <: UpdaterParam
   rng::AbstractRNG
   is_deterministic_switch::Bool
   feature_function::Function
+end
+
+function pad!(p::DoubleQParam,nb_new_feat::Int)
+  if nb_new_feat <= 0
+    return
+  end
+  pad!(p.wA,nb_new_feat)
+  pad!(p.wB,nb_new_feat)
 end
 
 function update!{T}(param::DoubleQParam,
@@ -318,7 +418,8 @@ function update!{T}(param::DoubleQParam,
     del = r + discount*QB_ - QA
     dw = del*phi
     param.wA += anneal!(annealer.B,minibatch!(mb.B,dw),lr)
-    update!(exp,f,del)
+    nb_new_feat = update!(exp,f,del)
+    pad!(param,nb_new_feat)
     return del, QA
   else
     QA_ = dot(param.wA,phi_,a_)
@@ -326,7 +427,8 @@ function update!{T}(param::DoubleQParam,
     del = r + discount*QA_ - QB
     dw = del*phi
     param.wB += anneal!(annealer.B,minibatch!(mb.B,dw),lr)
-    update!(exp,f,del)
+    nb_new_feat = update!(exp,f,del)
+    pad!(param,nb_new_feat)
     return del, QB
   end
 end
