@@ -41,13 +41,14 @@ module ReinforcementLearning
 export Model
 export ActionSpace, domain, DiscreteActionSpace
 export BlackBoxModel, init, isterminal, next
-export generate_tilecoder, test
-export EpsilonGreedyPolicy, SoftmaxPolicy, Policy, DiscretePolicy, weights, action
+export generate_tilecoder, test, bin
+export EpsilonGreedyPolicy, SoftmaxPolicy, Policy, DiscretePolicy, weights, action, range
 export Solver, Simulator, solve, simulate
 export ForgetfulLSTDParam, SARSAParam, TrueOnlineTDParam, LSPIParam
 export Minibatcher, NullMinibatcher, UniformMinibatcher
 export AnnealerParam, NullAnnealer, MomentumAnnealer, NesterovAnnealer, AdagradAnnealer,AdadeltaAnnealer, AdamAnnealer,RMSPropAnnealer
 export ExperienceReplayer, NullExperienceReplayer, UniformExperienceReplayer
+export FeatureExpander, ActionFeatureExpander, NullFeatureExpander, iFDDExpander, expand, update
 
 using PyPlot #for solver.grandiloquent
 using Interact
@@ -62,6 +63,7 @@ typealias RealVector Union{Array{Float64,1},Array{Int,1},SparseMatrixCSC{Float64
 typealias RealMatrix Union{Array{Float64,2},Array{Int,2},SparseMatrixCSC{Float64,Int},SparseMatrixCSC{Int,Int}}
 dot(x::Array,y::SparseMatrixCSC) = (x'*y)[1]
 dot(x::SparseMatrixCSC,y::Array) = dot(y,x)
+dot(x::SparseMatrixCSC,y::SparseMatrixCSC) = (x'*y)[1]
 
 import Base.assert #in order for other asserts to be allowed
 function assert(expr,val,fn::Function= ==,varname::AbstractString="")
@@ -77,14 +79,16 @@ abstract UpdaterParam
 abstract ActionSpace
 abstract Policy
 abstract Model
+abstract FeatureExpander
+abstract ActionFeatureExpander <: FeatureExpander
 
 include("BlackBoxModel.jl")
 
 include("policy.jl")
 
-include("simulator.jl")
-
 include("learners.jl")
+
+include("simulator.jl")
 
 include(joinpath("solvers","__solvers.jl"))
 

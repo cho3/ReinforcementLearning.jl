@@ -108,7 +108,7 @@ function generate_tilecoder(nb_tiles::Int,
   dim_offsets = [1; cumprod(nb_intervals)]
 #Union{Array{Float64,1},Array{Int,1}}
 
-  function __state_feature_function(state::RealVector)
+  function feature_function(state::RealVector)
     active_indices = zeros(Int,nb_tiles)
     for i = 1:nb_tiles
       state_ = state + offsets[:,i]
@@ -124,11 +124,11 @@ function generate_tilecoder(nb_tiles::Int,
       assert(ft,__nb_feat + 1,<)
       active_indices[i] = ft
     end
-    return active_indices
+    return sparsevec(active_indices,ones(length(active_indices)),__nb_feat)
   end
 
   function feature_function(state::RealVector,action::eltype(domain(A)))
-    active_indices = __state_feature_function(state)
+    active_indices = find(feature_function(state))
     active_indices += __nb_feat*(A_indices[action] - 1)
 
     return sparsevec(active_indices,ones(nb_tiles),nb_feat)
@@ -137,4 +137,35 @@ function generate_tilecoder(nb_tiles::Int,
   return feature_function
   #and then i guess you cast the state input with some function you write to map
   #state to an array
+end
+
+function bin(x::Real,lb::Real,ub::Real,nb_bins::Int)
+  if x <= lb
+    return 1
+  elseif x >= ub
+    return nb_bins
+  end
+  inc = (ub-lb)/nb_bins
+  i = floor(Int,(x-lb)/inc) + 1
+  i = max(min(i,nb_bins),1)
+
+  return i
+
+end
+
+function generate_radial_basis{T}(exemplars::Array{T,1},sigma::Union{Real,Array{Real,1}},dist::Function)
+  if length(sigma) == 1
+    sigma = sigma*ones(length(exemplars))
+  elseif length(sigma) != length(exemplars)
+    error("Inconsistent exemplar and sigma vector length")
+  end
+
+  function feature_function(s::T)
+    phi = ones(length(exemplars)+1)
+    for i = 1:length(exemplars)
+      phi[i] = exp(-dist(s,exemplars[i])./(2*sigma[i]))
+    end
+    return exemplars
+  end
+  return feature_function
 end

@@ -18,7 +18,7 @@ function init_weights(nb_feat::Int,method::AbstractString="unif_rand";
   end
 end
 
-
+#####################################################################
 #TODO: reference my other implementation that actually works
 type ForgetfulLSTDParam <: UpdaterParam
   alpha::Float64
@@ -41,9 +41,9 @@ type ForgetfulLSTDParam <: UpdaterParam
     self.beta = alpha
     self.lambda = lambda
     self.th = init_weights(nb_feat,init_method) #TODO: init_method...
-    self.e = zeros(nb_feat)
+    self.e = spzeros(nb_feat,1)#zeros(nb_feat)
     self.d = deepcopy(self.th)./alpha
-    self.A = eye(nb_feat)/alpha
+    self.A = speye(nb_feat)/alpha
 
     return self
   end
@@ -54,6 +54,7 @@ function update!{T}(param::ForgetfulLSTDParam,
                   annealer::AnnealerParam,
                   mb::Minibatcher,
                   er::ExperienceReplayer,
+                  exp::FeatureExpander,
                   phi::RealVector,
                   a::T,
                   r::Real,
@@ -63,8 +64,8 @@ function update!{T}(param::ForgetfulLSTDParam,
                   lr::Float64)
 
   param.e = vec(param.e -param.beta*phi*dot(phi,param.e) + phi)
-  param.A += -(param.beta*phi)*(phi'*param.A) + param.e*transpose(phi-gamma*phi_)
-  param.d += vec(-param.beta*phi*dot(phi,param.d) + param.e*r)
+  param.A = param.A -(param.beta*phi)*(phi'*param.A) + param.e*transpose(phi-gamma*phi_)
+  param.d = vec(param.d -param.beta*phi*dot(phi,param.d) + param.e*r)
   param.e = vec(gamma*param.lambda*param.e)
   #TODO: figure out how to apply minibatching, per parameter learning rates, and/or experience replay
   for i = 1:param.k
@@ -98,7 +99,7 @@ type SARSAParam <: UpdaterParam
                       trace_type::AbstractString="replacing")
     self = new()
     self.w = init_weights(n,init_method) #or something
-    self.e = zeros(n)
+    self.e = spzeros(n,1)
     self.is_replacing_trace = lowercase(trace_type) == "replacing"
     self.lambda = lambda
     return self
@@ -110,6 +111,7 @@ function update!{T}(param::SARSAParam,
                   annealer::AnnealerParam,
                   mb::Minibatcher,
                   er::ExperienceReplayer,
+                  exp::FeatureExpander,
                   phi::RealVector,
                   a::T,
                   r::Real,
@@ -118,6 +120,11 @@ function update!{T}(param::SARSAParam,
                   gamma::Float64,
                   lr::Float64)
   phi,a,r,phi_,a_ = replay!(er,phi,a,r,phi_,a_)
+
+  f = expand(exp,phi)
+  f_ = expand(exp,phi_)
+  phi = expand(exp::ActionFeatureExpander,f,a)
+  phi_ = expand(exp::ActionFeatureExpander,f_,a_)
   #NOTE: this might be a singleton array
   q = dot(param.w,phi) #TODO: dealing with feature functions that involve state and action?
   q_ = dot(param.w,phi_)
@@ -128,8 +135,9 @@ function update!{T}(param::SARSAParam,
     param.e = vec(phi + param.e)
   end
   dw = vec(del*param.e)
-  param.w = param.w + anneal!(annealer,minibatch!(mb,dw),lr)
+  param.w = vec(param.w + anneal!(annealer,minibatch!(mb,dw),lr))
   param.e = gamma*param.lambda*param.e
+  update!(exp,f,del)
   return del, q
 end
 
@@ -162,6 +170,7 @@ function update!{T}(param::QParam,
                   annealer::AnnealerParam,
                   mb::Minibatcher,
                   er::ExperienceReplayer,
+                  exp::FeatureExpander,
                   phi::RealVector,
                   a::T,
                   r::Real,
@@ -170,6 +179,11 @@ function update!{T}(param::QParam,
                   gamma::Float64,
                   lr::Float64)
   phi,a,r,phi_,a_ = replay!(er,phi,a,r,phi_,a_)
+
+  f = expand(exp,phi)
+  f_ = expand(exp,phi_)
+  phi = expand(exp::ActionFeatureExpander,f,a)
+  phi_ = expand(exp::ActionFeatureExpander,f_,a_)
   #NOTE: this might be a singleton array
   q = dot(param.w,phi) #TODO: dealing with feature functions that involve state and action?
   q_ = maximum([])
@@ -182,6 +196,7 @@ function update!{T}(param::QParam,
   dw = vec(del*param.e)
   param.w += anneal!(annealer,minibatch!(mb,dw),lr)
   param.e *= gamma*param.lambda
+  update!(exp,f,del)
   return del, q
 end
 
@@ -222,6 +237,7 @@ function update!{T}(param::TrueOnlineTDParam,
                   annealer::AnnealerParam,
                   mb::Minibatcher,
                   er::ExperienceReplayer,
+                  exp::FeatureExpander,
                   phi::RealVector,
                   a::T,
                   r::Real,
@@ -230,6 +246,11 @@ function update!{T}(param::TrueOnlineTDParam,
                   gamma::Float64,
                   lr::Float64)
   phi,a,r,phi_,a_ = replay!(er,phi,a,r,phi_,a_)
+
+  f = expand(exp,phi)
+  f_ = expand(exp,phi_)
+  phi = expand(exp::ActionFeatureExpander,f,a)
+  phi_ = expand(exp::ActionFeatureExpander,f_,a_)
   #NOTE: this might be a singleton array
   q = dot(param.w,phi) #TODO: dealing with feature functions that involve state and action?
   q_ = dot(param.w,phi_)
@@ -238,6 +259,7 @@ function update!{T}(param::TrueOnlineTDParam,
   dw = vec((del+q-param.q_old)*param.e - (q - param.q_old)*phi)
   param.w += anneal!(annealer,minibatch!(mb,dw),lr)
   param.q_old = q_
+  update!(exp,f,del)
   return del, q
 end
 
@@ -268,6 +290,7 @@ function update!{T}(param::DoubleQParam,
                     annealer::DoubleAnnealer,
                     mb::DoubleMinibatcher,
                     er::ExperienceReplayer,
+                    exp::FeatureExpander,
                     phi::RealVector,
                     a::T,
                     r::Union{Float64,Int},
@@ -277,6 +300,11 @@ function update!{T}(param::DoubleQParam,
                     lr::Float64)
   phi,a,r,phi_,a_ = replay!(er,phi,a,r,phi_,a_)
 
+  f = expand(exp,phi)
+  f_ = expand(exp,phi_)
+  phi = expand(exp::ActionFeatureExpander,f,a)
+  phi_ = expand(exp::ActionFeatureExpander,f_,a_)
+
   updateAflag = false
   if param.is_deterministic_switch
     param.updatingA = !param.updatingA
@@ -285,18 +313,20 @@ function update!{T}(param::DoubleQParam,
     updateAflag = rand(param.rng,Bool)
   end
   if updateAflag
-    QB_ = dot(param.wB,phi_) #TODO Max over feature function
-    QA = dot(param.wA,phi)
+    QB_ = dot(param.wB,phi_,a_) #TODO Max over feature function
+    QA = dot(param.wA,phi,a)
     del = r + discount*QB_ - QA
     dw = del*phi
     param.wA += anneal!(annealer.B,minibatch!(mb.B,dw),lr)
+    update!(exp,f,del)
     return del, QA
   else
-    QA_ = dot(param.wA,phi_)
-    QB = dot(param.wB,phi)
+    QA_ = dot(param.wA,phi_,a_)
+    QB = dot(param.wB,phi,a)
     del = r + discount*QA_ - QB
     dw = del*phi
     param.wB += anneal!(annealer.B,minibatch!(mb.B,dw),lr)
+    update!(exp,f,del)
     return del, QB
   end
 end
@@ -343,6 +373,7 @@ function update!{T}(param::LSPIParam,
                     annealer::AnnealerParam,
                     mb::Minibatcher,
                     er::ExperienceReplayer,
+                    exp::FeatureExpander,
                     phi::RealVector,
                     a::T,
                     r::Union{Float64,Int},
@@ -351,6 +382,9 @@ function update!{T}(param::LSPIParam,
                     gamma::Float64,
                     lr::Float64)
   phi,a,r,phi_,a_ = replay!(er,phi,a,r,phi_,a_)
+
+  phi = expand(exp::ActionFeatureExpander,phi,a)
+  phi_ = expand(exp::ActionFeatureExpander,phi_,a_)
 
   #print("\rUpdating Policy...")
 
@@ -373,76 +407,3 @@ function update!{T}(param::LSPIParam,
   return 0.,0.
 
 end
-
-##############################################
-
-#iFDD
-type iFDDParam <:UpdaterParam
-  w::RealVector
-  learned_features::Array{Tuple{Int,Int},1}
-  learned_feature_set::Set{Tuple{Int,Int}}
-  err_dict::Dict{Tuple{Int,Int},Float64}
-  app_dict::Dict{Tuple{Int,Int},Int}
-  xi::Float64 #[0.1,0.2,0.5] cutoff criterion
-  #other stuff
-end
-
-function expand_features(updater::iFDDParam,phi::RealVector)
-  _phi = zeros(length(updater.learned_features))
-  offset = length(phi)
-  phi = vcat(phi,_phi)
-  #NOTE: order matters for learned features!
-  for (k,(i,j)) in enumerate(updater.learned_features)
-    if (phi[i] > 0) && (phi[j] > 0)
-      phi[offset+k] = 1.
-    end
-  end
-  return phi
-end
-
-function update_dicts(updater::iFDDParam,phi::RealVector,del::Float64)
-  active_indices = find(phi)
-  for i in active_indices
-    for j in active_indices
-      #enforce ordering on (i,j) pairs
-      #TODO: maintain set of learned pairs for collision detection
-      if (i >= j) || ((i,j,) in updater.learned_feature_set)
-        break
-      end
-      err = get(updater.err_dict,(i,j),0.) + del
-      updater.err_dict[(i,j)] = err
-      count = get(updater.app_dict,(i,j),0) + 1
-      updater.app_dict[(i,j)] = count
-      if err/count > updater.xi
-        push!(updater.learned_features,(i,j))
-        push!(updater.learned_feature_set,(i,j))
-        #delete from err_dict, app_dict?
-      end
-
-    end #j
-  end #i
-end
-
-function action{T}(policy::EpsilonGreedyPolicy,updater::iFDDParam,s::T)
-  #darn it thought i could just cast it :(
-  r = rand(p.rng)
-  if r < p.eps
-    return domain(p.A)[rand(p.rng,1:length(p.A))]
-  end
-  Qs = zeros(length(p.A))
-  for (i,a) in enumerate(domain(p.A))
-    #NOTE: here, case feature function
-    Qs[i] = dot(weights(u),expand_features(updater,p.feature_function(s,a))) #where is a sensible place to put w?
-  end
-  return domain(p.A)[indmax(Qs)]
-end
-
-#TODO: softmax policy
-#TODO: DiscretePolicy
-
-#TODO: solve--expand feaures first
-
-
-
-
-##############################################

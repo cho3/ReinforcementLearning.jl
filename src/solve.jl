@@ -111,15 +111,15 @@ function solve(solver::Solver,bbm::BlackBoxModel,policy::Policy)
     R_ep = 0.
     s = init(bbm)
     a = action(policy,solver.updater,s)
-    phi = policy.feature_function(s,a)
+    phi = policy.feature_function(s) #might not be appropriate
     for t = 1:solver.nb_timesteps
       r, s_ = next(bbm,a)
       a_ = action(policy,solver.updater,s_)
-      phi_ = policy.feature_function(s_,a_)
+      phi_ = policy.feature_function(s_) #might not be apprpopriate
       #second expression does nothing
       gamma = (isterminal(bbm,a_) || (t > solver.nb_timesteps)) ? 0. : solver.discount
       #NOTE: using s,a,r,s_,a_ for maximum generality
-      td, q = update!(solver.updater,solver.annealer,solver.mb,solver.er,phi,a,r,phi_,a,gamma,solver.lr)
+      td, q = update!(solver.updater,solver.annealer,solver.mb,solver.er,policy.exp,phi,a,r,phi_,a,gamma,solver.lr)
 
       R_ep += r
       #update td, q
@@ -162,5 +162,5 @@ function solve(solver::Solver,bbm::BlackBoxModel,policy::Policy)
   end
 
   #return something--policy? stats?
-  return Policy(policy,solver.updater)
+  return Policy(policy,solver.updater,policy.exp)
 end
