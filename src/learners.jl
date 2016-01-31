@@ -195,6 +195,7 @@ function expand{T}(exp::ActionFeatureExpander,phi::Union{Array{Float64,1},Array{
   _phi[1+length(phi)*(exp.A_indices[a]-1):length(phi)*exp.A_indices[a]] = phi
   return _phi
 end
+expand2{T}(exp::FeatureExpander,phi::RealVector,a::T) = expand(exp,expand(exp,phi),a)
 
 update!(::NullFeatureExpander,phi::RealVector,del::Float64) = 0
 
@@ -206,31 +207,40 @@ type iFDDExpander{T} <: ActionFeatureExpander
   app_dict::Dict{Tuple{Int,Int},Int}
   xi::Float64 #[0.1,0.2,0.5] cutoff criterion
   #other stuff
+
 end
-function iFFDExpander{T}(A::DiscreteActionSpace{T};xi::Float64=0.5)
-  self = new()
-  self.A_indices = Dict{T,Int}([a=>i for (i,a) in enumerate(domain(A))])
-  self.learned_features = Tuple{Int,Int}[]
-  self.learned_feature_set = Set{Tuple{Int,Int}}()
-  self.err_dict = Dict{Tuple{Int,Int},Float64}()
-  self.app_dict = Dict{Tuple{Int,Int},Int}()
-  self.xi = xi
-  return self
+
+function iFDDExpander{T}(A::DiscreteActionSpace{T};xi::Float64=0.5)
+  #self = new()
+  A_indices = Dict{T,Int}([a=>i for (i,a) in enumerate(domain(A))])
+  learned_features = Tuple{Int,Int}[]
+  learned_feature_set = Set{Tuple{Int,Int}}()
+  err_dict = Dict{Tuple{Int,Int},Float64}()
+  app_dict = Dict{Tuple{Int,Int},Int}()
+  return iFDDExpander(A_indices,learned_features,learned_feature_set,err_dict,app_dict,xi)
 end
 
 function expand(expander::iFDDExpander,phi::RealVector)
   _phi = spzeros(length(expander.learned_features),1)
+  active_indices = Set(find(phi))
   offset = length(phi)
   phi = vcat(phi,_phi)
   #NOTE: order matters for learned features!
   for (k,(i,j)) in enumerate(expander.learned_features)
-    if (phi[i] > 0) && (phi[j] > 0)
+    if (i in active_indices) && (j in active_indices)
+      #(phi_copy[i] > 0) && (phi_copy[j] > 0)
       phi[offset+k] = 1.
+      push!(active_indices,offset+k)
+      phi[i] = 0
+      phi[j] = 0
+      #i think tihs works?
     end
   end
   return phi
 end
 
+#TODO: figure out a way to make sure the state representation doesnt explode
+#NOTE: what needs to happen is i deactivate features that are subfeatures to an existing feature
 function update!(expander::iFDDExpander,phi::RealVector,del::Float64)
   active_indices = find(phi)
   nb_new_feat = 0
@@ -239,13 +249,13 @@ function update!(expander::iFDDExpander,phi::RealVector,del::Float64)
       #enforce ordering on (i,j) pairs
       #TODO: maintain set of learned pairs for collision detection
       if (i >= j) || ((i,j,) in expander.learned_feature_set)
-        break
+        continue
       end
       err = get(expander.err_dict,(i,j),0.) + del
       expander.err_dict[(i,j)] = err
       count = get(expander.app_dict,(i,j),0) + 1
       expander.app_dict[(i,j)] = count
-      if abs(err)/count > expander.xi
+      if abs(err)/sqrt(count) > expander.xi
         push!(expander.learned_features,(i,j))
         push!(expander.learned_feature_set,(i,j))
         #delete from err_dict, app_dict?
@@ -258,8 +268,30 @@ function update!(expander::iFDDExpander,phi::RealVector,del::Float64)
   return nb_new_feat
 end
 
-pad!(x::SparseMatrixCSC,nb_new_feat::Int) = x.m += nb_new_feat
-pad!{T}(x::Array{T,1},nb_new_feat::Int) = append!(x,zeros(T,nb_new_feat))
+#pad!(x::SparseMatrixCSC,nb_new_feat::Int) = x.m += nb_new_feat
+#pad!{T}(x::Array{T,1},nb_new_feat::Int) = append!(x,zeros(T,nb_new_feat))
+
+function pad!(x::SparseMatrixCSC,nb_new_feat::Int,interval_length::Int)
+  assert(mod(length(x),interval_length)== 0)
+  intervals = length(x)/interval_length
+  x.m += nb_new_feat*intervals
+  #go through each element, greater than interval, incrememnt accordingly
+  #can probably do in one pass
+  for (i,ind) in enumerate(x.rowval)
+    x.rowval[i] += floor(Integer,ind/interval_length)*nb_new_feat
+  end
+end
+
+function pad!{T}(x::Array{T,1},nb_new_feat::Int,interval_length::Int)
+  assert(mod(length(x),interval_length)== 0)
+  intervals = length(x)/interval_length
+  #star from the bottom
+  for i = intervals:-1:1
+    for j = 1:nb_new_feat
+      insert!(x,convert(Int,i*interval_length+1),0.)
+    end
+  end
+end
 #=
 function action{T}(policy::EpsilonGreedyPolicy,updater::iFDDParam,s::T)
   #darn it thought i could just cast it :(

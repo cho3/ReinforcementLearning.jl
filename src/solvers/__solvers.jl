@@ -106,12 +106,12 @@ type SARSAParam <: UpdaterParam
   end
 end
 weights(u::SARSAParam) = u.w
-function pad!(p::SARSAParam,nb_new_feat::Int)
+function pad!(p::SARSAParam,nb_new_feat::Int,nb_feat::Int)
   if nb_new_feat <= 0
     return
   end
-  pad!(p.w,nb_new_feat)
-  pad!(p.e,nb_new_feat)
+  pad!(p.w,nb_new_feat,nb_feat)
+  pad!(p.e,nb_new_feat,nb_feat)
 end
 
 function update!{T}(param::SARSAParam,
@@ -145,7 +145,7 @@ function update!{T}(param::SARSAParam,
   param.w = vec(param.w + anneal!(annealer,minibatch!(mb,dw),lr))
   param.e = gamma*param.lambda*param.e
   nb_new_feat = update!(exp,f,del)
-  pad!(param,nb_new_feat)
+  pad!(param,nb_new_feat,length(f))
   return del, q
 end
 
@@ -173,12 +173,12 @@ type QParam <: UpdaterParam
   end
 end
 weights(p::QParam) = p.w
-function pad!(p::QParam,nb_new_feat::Int)
+function pad!(p::QParam,nb_new_feat::Int,nb_feat::Int)
   if nb_new_feat <= 0
     return
   end
-  pad!(p.w,nb_new_feat)
-  pad!(p.e,nb_new_feat)
+  pad!(p.w,nb_new_feat,nb_feat)
+  pad!(p.e,nb_new_feat,nb_feat)
 end
 
 function update!{T}(param::QParam,
@@ -213,7 +213,7 @@ function update!{T}(param::QParam,
   param.w = vec(param.w + anneal!(annealer,minibatch!(mb,dw),lr))
   param.e = gamma*param.lambda*param.e
   nb_new_feat = update!(exp,f,del)
-  pad!(param,nb_new_feat)
+  pad!(param,nb_new_feat,length(f))
   return del, q
 end
 
@@ -248,12 +248,12 @@ type GQParam <: UpdaterParam
   end
 end
 weights(p::GQParam) = p.th
-function pad!(p::GQParam,nb_new_feat::Int)
+function pad!(p::GQParam,nb_new_feat::Int,nb_feat::Int)
   if nb_new_feat <= 0
     return
   end
-  pad!(p.w,nb_new_feat)
-  pad!(p.th,nb_new_feat)
+  pad!(p.w,nb_new_feat,nb_feat)
+  pad!(p.th,nb_new_feat,nb_feat)
 end
 
 #NOTE: single step GQ for now (no eligbility traces)
@@ -290,7 +290,7 @@ function update!{T}(param::GQParam,
   param.th = vec(param.th + anneal!(annealer,minibatch!(mb,dth),lr))
   param.w = vec(param.w + param.b*(del-dot(param.w,phi))*phi)
   nb_new_feat = update!(exp,f,del)
-  pad!(param,nb_new_feat)
+  pad!(param,nb_new_feat,length(f))
   return del, q
 end
 
@@ -316,12 +316,12 @@ type TrueOnlineTDParam <: UpdaterParam
 end
 weights(u::TrueOnlineTDParam) = u.w
 
-function pad!(p::TrueOnlineTDParam,nb_new_feat::Int)
+function pad!(p::TrueOnlineTDParam,nb_new_feat::Int,nb_feat::Int)
   if nb_new_feat <= 0
     return
   end
-  pad!(p.w,nb_new_feat)
-  pad!(p.e,nb_new_feat)
+  pad!(p.w,nb_new_feat,nb_feat)
+  pad!(p.e,nb_new_feat,nb_feat)
 end
 
 function update!{T}(param::TrueOnlineTDParam,
@@ -351,7 +351,7 @@ function update!{T}(param::TrueOnlineTDParam,
   param.w += anneal!(annealer,minibatch!(mb,dw),lr)
   param.q_old = q_
   nb_new_feat = update!(exp,f,del)
-  pad!(param,nb_new_feat)
+  pad!(param,nb_new_feat,length(f))
   return del, q
 end
 
@@ -378,12 +378,12 @@ type DoubleQParam <: UpdaterParam
   feature_function::Function
 end
 
-function pad!(p::DoubleQParam,nb_new_feat::Int)
+function pad!(p::DoubleQParam,nb_new_feat::Int,nb_feat::Int)
   if nb_new_feat <= 0
     return
   end
-  pad!(p.wA,nb_new_feat)
-  pad!(p.wB,nb_new_feat)
+  pad!(p.wA,nb_new_feat,nb_feat)
+  pad!(p.wB,nb_new_feat,nb_feat)
 end
 
 function update!{T}(param::DoubleQParam,
@@ -419,7 +419,7 @@ function update!{T}(param::DoubleQParam,
     dw = del*phi
     param.wA += anneal!(annealer.B,minibatch!(mb.B,dw),lr)
     nb_new_feat = update!(exp,f,del)
-    pad!(param,nb_new_feat)
+    pad!(param,nb_new_feat,length(f))
     return del, QA
   else
     QA_ = dot(param.wA,phi_,a_)
@@ -428,7 +428,7 @@ function update!{T}(param::DoubleQParam,
     dw = del*phi
     param.wB += anneal!(annealer.B,minibatch!(mb.B,dw),lr)
     nb_new_feat = update!(exp,f,del)
-    pad!(param,nb_new_feat)
+    pad!(param,nb_new_feat,length(f))
     return del, QB
   end
 end

@@ -48,7 +48,7 @@ export ForgetfulLSTDParam, SARSAParam, TrueOnlineTDParam, LSPIParam, QParam, GQP
 export Minibatcher, NullMinibatcher, UniformMinibatcher
 export AnnealerParam, NullAnnealer, MomentumAnnealer, NesterovAnnealer, AdagradAnnealer,AdadeltaAnnealer, AdamAnnealer,RMSPropAnnealer
 export ExperienceReplayer, NullExperienceReplayer, UniformExperienceReplayer
-export FeatureExpander, ActionFeatureExpander, NullFeatureExpander, iFDDExpander, expand, update!, pad!
+export FeatureExpander, ActionFeatureExpander, NullFeatureExpander, iFDDExpander, expand, update!, pad!, expand2
 
 using PyPlot #for solver.grandiloquent
 using Interact

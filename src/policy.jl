@@ -27,7 +27,7 @@ range(p::DiscretePolicy) = p.A
 function action{T}(p::DiscretePolicy,s::T)
   Qs = zeros(length(p.A))
   for (i,a) in enumerate(domain(p.A))
-    Qs[i] = dot(p.weights,expand(p.exp,p.feature_function(s),a)) #where is a sensible place to put w?
+    Qs[i] = dot(p.weights,expand2(p.exp,p.feature_function(s),a)) #where is a sensible place to put w?
   end
   return domain(p.A)[indmax(Qs)]
 end
@@ -62,16 +62,14 @@ type EpsilonGreedyPolicy <: ExplorationPolicy
 end
 range(p::EpsilonGreedyPolicy) = p.A
 function action{T}(p::EpsilonGreedyPolicy,u::UpdaterParam,s::T)
-  """
-  Sketching things out right now, nothing here is final or working
-  """
+
   r = rand(p.rng)
   if r < p.eps
     return domain(p.A)[rand(p.rng,1:length(p.A))]
   end
   Qs = zeros(length(p.A))
   for (i,a) in enumerate(domain(p.A))
-    Qs[i] = dot(weights(u),expand(p.exp,p.feature_function(s),a)) #where is a sensible place to put w?
+    Qs[i] = dot(weights(u),expand2(p.exp,p.feature_function(s),a)) #where is a sensible place to put w?
   end
   return domain(p.A)[indmax(Qs)]
 end
@@ -87,12 +85,9 @@ range(p::SoftmaxPolicy) = p.A
 
 #using StatsBase.sample means RNG is useless, but I'm lazy
 function action{T}(p::SoftmaxPolicy,u::UpdaterParam,s::T)
-  """
-  Sketching things out right now, nothing here is final or working
-  """
   Qs = zeros(length(p.A))
   for (i,a) in enumerate(domain(p.A))
-    Qs[i] = exp(p.tau*dot(weights(u),expand(p.exp,p.feature_function(s),a))) #where is a sensible place to put w?
+    Qs[i] = exp(p.tau*dot(weights(u),expand2(p.exp,p.feature_function(s),a))) #where is a sensible place to put w?
   end
   return sample(domain(p.A),WeightVec(Qs))
 end
