@@ -229,6 +229,7 @@ function expand(expander::iFDDExpander,phi::RealVector)
   for (k,(i,j)) in enumerate(expander.learned_features)
     if (i in active_indices) && (j in active_indices)
       #(phi_copy[i] > 0) && (phi_copy[j] > 0)
+      #NOTE: i think the issue is here--how to do sorted power set?
       phi[offset+k] = 1.
       push!(active_indices,offset+k)
       phi[i] = 0

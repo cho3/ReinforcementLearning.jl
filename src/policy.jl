@@ -23,6 +23,8 @@ type DiscretePolicy <: Policy
   exp::ActionFeatureExpander
 end
 range(p::DiscretePolicy) = p.A
+length(p::Policy,bbm::BlackBoxModel) =
+  length(expand(p.exp,p.feature_function(bbm.state),domain(range(p))[1]))
 
 function action{T}(p::DiscretePolicy,s::T)
   Qs = zeros(length(p.A))

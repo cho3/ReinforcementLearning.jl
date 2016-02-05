@@ -53,7 +53,7 @@ function simulate(sim::Simulator,bbm::BlackBoxModel,policy::Policy)
       print("\r")
       u = mean(R_net[1:ep])
       v = std(R_net[1:ep])
-      print("Simulation $(ep), Average Total Reward: $(round(u,3)), 95% Confidence Interval: ($(round(u-1.94*v,3)),$(round((u+1.94*v),3))")
+      print("Simulation $(ep), Average Total Reward: $(round(u,3))+/-$(round(v,3)), 95% Confidence Interval: ($(round(u-1.94*v,3)),$(round((u+1.94*v),3))")
     end
   end
   if sim.visualizer != __visualizer

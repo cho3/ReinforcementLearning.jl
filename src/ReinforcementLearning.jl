@@ -41,19 +41,20 @@ module ReinforcementLearning
 export Model
 export ActionSpace, domain, DiscreteActionSpace
 export BlackBoxModel, init, isterminal, next
-export generate_tilecoder, test, bin, generate_radial_basis
-export EpsilonGreedyPolicy, SoftmaxPolicy, Policy, DiscretePolicy, weights, action, range
+export EpsilonGreedyPolicy, SoftmaxPolicy, Policy, DiscretePolicy, weights, action, range, length
 export Solver, Simulator, solve, simulate
 export ForgetfulLSTDParam, SARSAParam, TrueOnlineTDParam, LSPIParam, QParam, GQParam
 export Minibatcher, NullMinibatcher, UniformMinibatcher
 export AnnealerParam, NullAnnealer, MomentumAnnealer, NesterovAnnealer, AdagradAnnealer,AdadeltaAnnealer, AdamAnnealer,RMSPropAnnealer
 export ExperienceReplayer, NullExperienceReplayer, UniformExperienceReplayer
 export FeatureExpander, ActionFeatureExpander, NullFeatureExpander, iFDDExpander, expand, update!, pad!, expand2
+export generate_tilecoder, test, bin, generate_radial_basis, sample
 
 using PyPlot #for solver.grandiloquent
 using Interact
 import StatsBase: sample, WeightVec #for policy.SoftmaxPolicy
 import Base.dot
+import Base.length
 using HypothesisTests #for utils.test...
 
 
