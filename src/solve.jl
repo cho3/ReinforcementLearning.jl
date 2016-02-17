@@ -6,6 +6,9 @@ type SolverHistory
   td_err::Array{Float64,1}
   q_est::Array{Float64,1}
   w_norm::Array{Float64,1}
+  sim_u::Array{Float64,1} #avg reward
+  sim_v::Array{Float64,1} #var
+  sim_interval::Int
 end
 
 function truncate!(stats::SolverHistory,ind::Int)
@@ -16,26 +19,28 @@ end
 
 function display_stats(stats::SolverHistory)
   #subplot
-  subplot(411)
+  subplot(511)
   plot(stats.R_tot)
   xlabel("Episode")
   ylabel("Total Reward")
 
-  subplot(412)
+  subplot(512)
   plot(stats.td_err)
   xlabel("Time Step")
   ylabel("TD Error")
 
-  subplot(413)
+  subplot(513)
   plot(stats.q_est)
   xlabel("Time Step")
   ylabel("Q Value Estimate")
 
-  subplot(414)
+  subplot(514)
   plot(stats.w_norm)
   xlabel("Time Step")
   ylabel("||w||_2")
 
+  subplot(515)
+  errorbar(stats.sim_interval*collect(1:length(stats.sim_u)),stats.sim_u,yerr=stats.sim_v)
   suptitle("Reinforcement Learning Statistics and Metrics")
 
 end
@@ -56,6 +61,8 @@ type Solver
   grandiloquent::Bool #make plots?
   stats::SolverHistory
   expma_param::Float64
+  sim_interval::Int
+  simulator::Simulator
   function Solver(updater::UpdaterParam;
                     lr::Float64=0.01,
                     nb_episodes::Int=100,
@@ -68,7 +75,9 @@ type Solver
                     verbose::Bool=true,
                     display_interval::Int=10,
                     grandiloquent::Bool=true,
-                    expma_param::Float64=0.9)
+                    expma_param::Float64=0.9,
+                    sim_interval::Int=100,
+                    simulator::Simulator=Simulator())
     self = new()
     self.lr = lr
     self.nb_episodes = nb_episodes
@@ -84,7 +93,11 @@ type Solver
     self.grandiloquent = grandiloquent
     self.expma_param = expma_param
     self.stats = SolverHistory(zeros(nb_episodes),zeros(nb_episodes*nb_timesteps),
-                  zeros(nb_episodes*nb_timesteps),zeros(nb_episodes*nb_timesteps))
+                  zeros(nb_episodes*nb_timesteps),zeros(nb_episodes*nb_timesteps),
+                  zeros(floor(Int,nb_episodes/sim_interval)),
+                  zeros(floor(Int,nb_episodes/sim_interval)),sim_interval)
+    self.sim_interval = sim_interval
+    self.simulator = simulator
 
     return self
   end
@@ -153,6 +166,14 @@ function solve(solver::Solver,bbm::BlackBoxModel,policy::Policy)
       print("Episode $ep, \tAvg Reward: $(round(R_avg,3)), \tAvg Abs. TD Error: $(round(td_avg,3)), \tAvg Q-value: $(round(q_avg,3))")
     end
 
+  if solver.sim_interval > 0
+    if mod(ep,solver.sim_interval) == 0
+      u,v = simulate(solver.simulator,bbm,Policy(policy,solver.updater,policy.exp),"Episode $ep; ")
+      sim_idx = floor(Int,ep/solver.sim_interval)
+      solver.stats.sim_u[sim_idx] = u
+      solver.stats.sim_v[sim_idx] = v
+    end
+  end
 
   end #ep
   truncate!(solver.stats,ind-1)

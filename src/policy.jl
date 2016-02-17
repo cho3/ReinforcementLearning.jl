@@ -16,6 +16,25 @@ end
 action(::Policy,s) = error("Policy type uninstantiated")
 range(::Policy) = error("Policy type uninstantiated")
 
+function load_policy(fname::AbstractString,feature_function::Function)
+  #TODO: enum
+  file = jldopen(fname,"r")
+  policy_type = read(file,"policy")
+  if policy_type == "SoftmaxPolicy"
+    policy = load_softmaxpolicy(file,feature_function)
+  elseif policy_type == "DiscretePolicy"
+    policy = load_discretepolicy(file,feature_function)
+  elseif policy_type == "EpsilonGreedyPolicy"
+    policy = load_epsilongreedypolicy(file,feature_function)
+  else
+    error("Loading unsupported for type: `$policy_type`")
+  end
+  close(file)
+  return policy
+end
+
+###################################################################
+#DiscretePolicy
 type DiscretePolicy <: Policy
   A::DiscreteActionSpace
   feature_function::Function
@@ -37,6 +56,21 @@ value{S,T}(p::DiscretePolicy,s::S,a::T) = dot(p.weights,expand(p.exp,p.feature_f
 values{T}(p::DiscretePolicy,s::T) = [value(s,a) for a in p.A]
 value{T}(p::DiscretePolicy,s::T) = maximum(values(p,s))
 
+function save(p::DiscretePolicy,file) #no JldFile type available ...:(
+  write(file,"weights",p.weights)
+  write(file,"expander",p.exp)
+  write(file,"actions",p.A)
+end
+
+function load_discretepolicy(file,feature_function::Function)
+  #file = jldopen(fname,"r")
+  weights = read(file,"weights")
+  expander = read(file,"expander")
+  A = read(file,"actions")
+  #close(file)
+  return DiscretePolicy(actions,feature_function,weights,expander)
+end
+######################################################################
 abstract ExplorationPolicy <: Policy
 #NOTE: exploration policies are only called while solving, so its ok for them to have
 #       a reference to the updater
@@ -76,6 +110,25 @@ function action{T}(p::EpsilonGreedyPolicy,u::UpdaterParam,s::T)
   return domain(p.A)[indmax(Qs)]
 end
 
+function save(p::EpsilonGreedyPolicy,file) #no JldFile type available ...:(
+  write(file,"weights",p.weights)
+  write(file,"expander",p.exp)
+  write(file,"actions",p.A)
+  write(file,"eps",p.eps)
+  write(file,"rng",p.rng)
+end
+
+function load_epsilongreedypolicy(file,feature_function::Function)
+  #file = jldopen(fname,"r")
+  weights = read(file,"weights")
+  expander = read(file,"expander")
+  A = read(file,"actions")
+  rng = read(file,"rng")
+  eps= read(file,"eps")
+  #close(file)
+  return EpsilonGreedyPolicy(rng,actions,feature_function,weights,eps,expander)
+end
+#########################################################################
 type SoftmaxPolicy <: ExplorationPolicy
   rng::AbstractRNG
   A::DiscreteActionSpace #TODO
@@ -94,6 +147,25 @@ function action{T}(p::SoftmaxPolicy,u::UpdaterParam,s::T)
   return sample(domain(p.A),WeightVec(Qs))
 end
 
+function save(p::SoftmaxPolicy,file) #no JldFile type available ...:(
+  write(file,"weights",p.weights)
+  write(file,"expander",p.exp)
+  write(file,"actions",p.A)
+  write(file,"tau",p.tau)
+  write(file,"rng",p.rng)
+end
+
+function load_softmaxpolicy(file,feature_function::Function)
+  #file = jldopen(fname,"r")
+  weights = read(file,"weights")
+  expander = read(file,"expander")
+  A = read(file,"actions")
+  rng = read(file,"rng")
+  tau = read(file,"tau")
+  #close(file)
+  return SoftmaxPolicy(rng,actions,feature_function,weights,tau,expander)
+end
+#########################################################################
 #For continuous action spaces
 #can potentially make this more generic with difference noise models
 type GaussianPolicy <: ExplorationPolicy

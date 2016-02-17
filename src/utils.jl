@@ -169,7 +169,7 @@ function generate_radial_basis{T}(exemplars::Array{T,1},sigma::Union{Real,Array{
   end
   return feature_function
 end
-
+#NOTE: from StatsBase
 function sample(rng::AbstractRNG,wv::WeightVec)
     t = rand(rng) * sum(wv)
     w = values(wv)
@@ -184,3 +184,14 @@ function sample(rng::AbstractRNG,wv::WeightVec)
 end
 
 sample(rng::AbstractRNG,a::AbstractArray, wv::WeightVec) = a[sample(rng,wv)]
+#NOTE: From rosettacode
+#NOTE: powerset has size 2^N
+function powerset{T}(x::Union{Vector{T},Set{T}})
+  result = Vector{T}[[]] #orig code
+  for elem in x,j in eachindex(result)
+    push!(result,[result[j];elem]) #orig 
+  end
+  return result
+end
+
+sortedpowerset{T}(x::Union{Vector{T},Set{T}}) = sort(powerset(x),by=length,rev=true)

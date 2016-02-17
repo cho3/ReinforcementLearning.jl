@@ -13,6 +13,10 @@ function init_weights(nb_feat::Int,method::AbstractString="unif_rand";
     return ones(nb_feat)
   elseif lowercase(method) == "optimistic"
     return 10*ones(nb_feat)
+  elseif lowercase(method) == "rand"
+    return rand(rng,nb_feat)
+  elseif lowercase(method) == "half"
+    return 0.5*ones(nb_feat)
   else
     error("No such initialization method: $method")
   end
@@ -221,26 +225,25 @@ end
 type GQParam <: UpdaterParam
   w::RealVector
   th::RealVector
-  #e::RealVector
+  e::RealVector
   b::Float64 #learning rate for gradient corrector
-  #lambda::Float64
+  lambda::Float64
   #rho::Float64
   A::DiscreteActionSpace
   #feature_function::Function
   is_replacing_trace::Bool
   function GQParam(n::Int,A::DiscreteActionSpace;
-                  #lambda::Float64=0.95,
-                  b::Float64=1e-7,
-                  init_method::AbstractString="unif_rand"
-                  #trace_type::AbstractString="replacing"
-                  )
+                  lambda::Float64=0.95,
+                  b::Float64=1e-4,
+                  init_method::AbstractString="unif_rand",
+                  trace_type::AbstractString="replacing")
     self = new()
     self.w = spzeros(n,1)#init_weights(n,"zero")
     self.th = init_weights(n,init_method)
     self.b = b
-    #self.e = spzeros(n,1)
-    #self.lambda = lambda
-    #self.is_replacing_trace = lowercase(trace_type) == "replacing"
+    self.e = spzeros(n,1)
+    self.lambda = lambda
+    self.is_replacing_trace = lowercase(trace_type) == "replacing"
     self.A = A
     #self.feature_function = ff
 
@@ -254,6 +257,7 @@ function pad!(p::GQParam,nb_new_feat::Int,nb_feat::Int)
   end
   pad!(p.w,nb_new_feat,nb_feat)
   pad!(p.th,nb_new_feat,nb_feat)
+  pad!(p.e,nb_new_feat,nb_feat)
 end
 
 #NOTE: single step GQ for now (no eligbility traces)
@@ -285,10 +289,17 @@ function update!{T}(param::GQParam,
   q_ = qs_[q_ind_]
   phi_ = phi_s[q_ind_]
   # end step
+  if param.is_replacing_trace
+    param.e = vec(max(phi,param.e)) #NOTE: assumes binary features
+  else
+    param.e = vec(phi + param.e)
+  end
   del = r + gamma*q_ - q #td error
-  dth = vec(del*phi-gamma*dot(param.w,phi)*phi_)
+  #dth = vec(del*phi-gamma*dot(param.w,phi)*phi_)
+  dth = vec(del*param.e-gamma*(1-param.lambda)*dot(param.w,param.e)*phi_)
   param.th = vec(param.th + anneal!(annealer,minibatch!(mb,dth),lr))
-  param.w = vec(param.w + param.b*(del-dot(param.w,phi))*phi)
+  param.w = vec(param.w + lr*param.b*(del*param.e-dot(param.w,phi)*phi))
+  param.e = gamma*param.lambda*param.e
   nb_new_feat = update!(exp,f,del)
   pad!(param,nb_new_feat,length(f))
   return del, q
@@ -509,3 +520,111 @@ function update!{T}(param::LSPIParam,
   return 0.,0.
 
 end
+
+#####################################################################
+#Model Predictive Control
+#=
+  NOTE: do something like: save result from last time step to warmstart solution
+    for current time step
+=#
+
+function generate_vector_to_action()
+
+end
+
+function generate_action_to_vector()
+
+end
+#NOTE: use bin(x,lb,ub,nb_bins) for action_to_vector
+
+type MPCPolicy <: Policy
+  time_horizon::Int #necessary? encapsulated by length of x vectors?
+  nb_var_per_action::Int
+  compute_time::Float64
+  vector_to_action::Function
+  optimizer::Opt #use NLOpt symbol? assume [-1,1] bound
+  x_warm::Array{Array{Float64,1},1}
+  bbm::BlackBoxModel
+  init_map::Dict{Int,AbstractString}
+  function MPCPolicy(bbm::BlackBoxModel,
+                      vector_to_action::Function,
+                      n::Int;
+                      nb_beams::Int=3,
+                      compute_time::Float64=10.,
+                      time_horizon::Int=5,
+                      lb::AbstractVector=zeros(n*time_horizon),
+                      ub::AbstractVector=ones(n*time_horizon),
+                      optimizer::Symbol=:LN_BOBYQA) #default to most modern derivative-free local optim
+    self = new()
+    self.compute_time = compute_time
+    self.nb_var_per_action=n
+    self.time_horizon = time_horizon #necessary?
+    self.vector_to_action = vector_to_action
+    self.time_horizon = time_horizon #necesary?
+    #n is the number of variables to define an action
+    optimizer = Opt(optimizer,n*time_horizon)
+    maxtime!(optimizer,compute_time/nb_beams)
+    lower_bounds!(optimizer,lb)
+    upper_bounds!(optimizer,ub)
+    self.optimizer = optimizer
+    #init_map: 1=rand/0.5, 2=ones,zeros, 3=ones,zeros,0.5, 4+=ones,zeros,0.5,rand...
+    if nb_beams == 1
+      init_map = Dict{Int,AbstractString}(1=>"rand")
+    else
+      init_map = Dict{Int,AbstractString}(1=>"one",2=>"zero")
+      for ind in 3:nb_beams
+        init_map[ind] = "rand"
+      end
+    end
+    self.init_map = init_map
+    self.x_warm = [init_weights(n*time_horizon,init_map[i]) for i = 1:nb_beams]
+
+    return self
+  end
+end
+
+function lookahead{T}(p::MPCPolicy,s::T,x::Vector{Float64})
+  p.bbm.state = s #necessary?
+  as = p.vector_to_action(x)
+  R = 0.
+  for a in as
+    if isterminal(p.bbm,a) #not sure if right--does it capture failure/success conditions?
+      r,o = next(p.bbm,a) #again, not sure if right
+      R += r
+      break
+    end
+    r,o = next(p.bbm,a)
+    R += r
+  end
+  return R
+end
+
+function rollforward(p::MPCPolicy,x::Vector{Float64},i::Int)
+  x = circshift(x,-p.nb_var_per_action) #circhshift PUSHES back
+  x[end-p.nb_var_per_action+1:end] = init_weights(p.nb_var_per_action,p.init_map[i]) #zeros, ones, 0.5, rand
+  return x
+end
+
+#NOTE: check if i need to do some deepcopy magic with s
+function action{T}(p::MPCPolicy,s::T)
+  #push x_warm forward, random initialization for last
+  #set up optimization problem
+  f_opt(x::Vector{Float64},grad::Union{Vector,Matrix}) = lookahead(p,s,x)
+  #optimize!
+  max_objective!(p.optimizer,f_opt)
+  vals = zeros(length(p.x_warm))
+  for (i,x0) in enumerate(p.x_warm)
+    x0 = rollforward(p,x0,i) #TODO find what ABC should be
+    maxf,maxx,ret = optimize(p.optimizer,x0)
+    vals[i] = maxx
+    p.x_warm[i] = maxx
+    #TODO how to keep track of maxx?
+  end
+  #select best
+  idx_max = indmax(vals)
+  #convert to action, pop off top
+  #return action
+  return p.vector_to_action(p.x_warm[idx_max])[1]
+end
+
+#####################################################################

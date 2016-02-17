@@ -199,6 +199,7 @@ expand2{T}(exp::FeatureExpander,phi::RealVector,a::T) = expand(exp,expand(exp,ph
 
 update!(::NullFeatureExpander,phi::RealVector,del::Float64) = 0
 
+##########################################################################
 type iFDDExpander{T} <: ActionFeatureExpander
   A_indices::Dict{T,Int}
   learned_features::Array{Tuple{Int,Int},1}
@@ -207,7 +208,6 @@ type iFDDExpander{T} <: ActionFeatureExpander
   app_dict::Dict{Tuple{Int,Int},Int}
   xi::Float64 #[0.1,0.2,0.5] cutoff criterion
   #other stuff
-
 end
 
 function iFDDExpander{T}(A::DiscreteActionSpace{T};xi::Float64=0.5)
@@ -232,6 +232,7 @@ function expand(expander::iFDDExpander,phi::RealVector)
       #NOTE: i think the issue is here--how to do sorted power set?
       phi[offset+k] = 1.
       push!(active_indices,offset+k)
+      #remove i and j from active indices?
       phi[i] = 0
       phi[j] = 0
       #i think tihs works?
@@ -262,6 +263,108 @@ function update!(expander::iFDDExpander,phi::RealVector,del::Float64)
         #delete from err_dict, app_dict?
         delete!(expander.err_dict,(i,j))
         delete!(expander.app_dict,(i,j))
+        nb_new_feat += 1
+      end
+    end #j
+  end #i
+  return nb_new_feat
+end
+#######################################################################
+type iFDDProperExpander{T} <: ActionFeatureExpander
+  A_indices::Dict{T,Int}
+  learned_features::Dict{Set{Int},Int}
+  index_feature_map::Dict{Int,Set{Int}}
+  err_dict::Dict{Set{Int},Float64}
+  app_dict::Dict{Set{Int},Int}
+  xi::Float64 #[0.1,0.2,0.5] cutoff criterion
+  #other stuff
+
+end
+
+function iFDDProperExpander{T}(A::DiscreteActionSpace{T};xi::Float64=0.5)
+  #self = new()
+  A_indices = Dict{T,Int}([a=>i for (i,a) in enumerate(domain(A))])
+  learned_features = Dict{Set{Int},Int}()
+  index_feature_map = Dict{Int,Set{Int}}()
+  err_dict = Dict{Set{Int},Float64}()
+  app_dict = Dict{Set{Int},Int}()
+  return iFDDProperExpander(A_indices,learned_features,
+                      index_feature_map,err_dict,app_dict,xi)
+end
+
+to_features(exp::iFDDProperExpander,i::Int) =
+            i in keys(exp.index_feature_map) ? exp.index_feature_map[i]: Set([i])
+
+#NOTE probably issue with old features not being zerod out? alternatively,
+# could be issue with how new features are eing indexed
+function expand(expander::iFDDProperExpander,phi::RealVector)
+  _phi = spzeros(length(expander.learned_features),1)
+  #NOTE: issue is with this
+  active_indices = Set(find(phi))
+  feat_set = sortedpowerset(active_indices)
+  #=
+  if length(expander.learned_features) > 0
+    println(active_indices)
+    println(feat_set)
+  end
+  =#
+  offset = length(phi)
+  phi = vcat(phi,_phi)
+  #phi = spzeros(length(expander.learned_features)+offset,1)
+  #NOTE: order matters for learned features!
+  for _f in feat_set
+    f = Set(_f)
+    if (f in keys(expander.learned_features)) && (length(setdiff(f,active_indices)) == 0)
+      active_indices = setdiff(active_indices,f)
+      #phi[expander.learned_features[f]+offset] = 1.
+      phi[expander.learned_features[f]] = 1.
+      for idx in f
+        assert(idx <= offset)
+        phi[idx] = 0
+      end
+    end
+  end
+
+  return phi
+end
+
+#TODO: figure out a way to make sure the state representation doesnt explode
+#NOTE: what needs to happen is i deactivate features that are subfeatures to an existing feature
+function update!(expander::iFDDProperExpander,phi::RealVector,del::Float64)
+  active_indices = find(phi)
+  #println(active_indices)
+  nb_new_feat = 0
+  for i in active_indices
+    for j in active_indices
+      #enforce ordering on (i,j) pairs
+      if i >= j
+        continue
+      end
+      f = union(to_features(expander,i),to_features(expander,j))
+      #=
+      if length(f) > 2
+        print(to_features(expander,i))
+        print(to_features(expander,j))
+        println(f)
+      end
+      =#
+      #println(f)
+      #TODO: maintain set of learned pairs for collision detection
+      if f in keys(expander.learned_features)
+        continue
+      end
+      err = get(expander.err_dict,f,0.) + del
+      expander.err_dict[f] = err
+      count = get(expander.app_dict,f,0) + 1
+      expander.app_dict[f] = count
+      if abs(err)/sqrt(count) > expander.xi
+        #ind = length(expander.learned_features) + 1
+        ind = length(phi) + nb_new_feat + 1
+        expander.learned_features[f] = ind
+        expander.index_feature_map[ind] = f
+        #delete from err_dict, app_dict?
+        delete!(expander.err_dict,f)
+        delete!(expander.app_dict,f)
         nb_new_feat += 1
       end
     end #j

@@ -44,18 +44,21 @@ export BlackBoxModel, init, isterminal, next
 export EpsilonGreedyPolicy, SoftmaxPolicy, Policy, DiscretePolicy, weights, action, range, length
 export Solver, Simulator, solve, simulate
 export ForgetfulLSTDParam, SARSAParam, TrueOnlineTDParam, LSPIParam, QParam, GQParam
+export MPCPolicy
 export Minibatcher, NullMinibatcher, UniformMinibatcher
 export AnnealerParam, NullAnnealer, MomentumAnnealer, NesterovAnnealer, AdagradAnnealer,AdadeltaAnnealer, AdamAnnealer,RMSPropAnnealer
 export ExperienceReplayer, NullExperienceReplayer, UniformExperienceReplayer
-export FeatureExpander, ActionFeatureExpander, NullFeatureExpander, iFDDExpander, expand, update!, pad!, expand2
-export generate_tilecoder, test, bin, generate_radial_basis, sample
+export FeatureExpander, ActionFeatureExpander, NullFeatureExpander, iFDDExpander,iFDDProperExpander, expand, update!, pad!, expand2
+export generate_tilecoder, test, bin, generate_radial_basis, sample, powerset, sortedpowerset
+export save, load, load_policy
 
 using PyPlot #for solver.grandiloquent
 using Interact
-import StatsBase: sample, WeightVec #for policy.SoftmaxPolicy
-import Base.dot
-import Base.length
+import Base: dot, length, values
+import StatsBase: sample, WeightVec,values #for policy.SoftmaxPolicy
 using HypothesisTests #for utils.test...
+using JLD #for saving/loading/model persistence
+using NLopt #for MPC
 
 
 #typealias Uses_2nd_A Union{SARSAParam}
@@ -84,23 +87,90 @@ abstract FeatureExpander
 abstract ActionFeatureExpander <: FeatureExpander
 
 include("BlackBoxModel.jl")
-
 include("policy.jl")
-
 include("learners.jl")
-
 include("simulator.jl")
-
 include(joinpath("solvers","__solvers.jl"))
-
 #"""
 #for solver in filter(isfile,readdir())
 #  include(joinpath("solvers",solver))
 #end
 #"""
-
 include("solve.jl")
-
 include("utils.jl")
+
+############################################################################
+#Saving/Loading/Model Persistence
+#JLD can't support generic functions
+#=
+  BlackBoxModel can't be saved.
+  Policy: feature_function can't be saved
+  FeatureExpander: can be saved
+  Annealer: can be saved
+  ExperienceReplayer: can be saved
+  Simulator: can be saved
+  UpdaterParam: can be saved
+  SolverHistory: can be saved
+  Solver: can be saved
+=#
+
+name_type_dict = Dict{DataType,AbstractString}(UpdaterParam=>"updater",
+                                              Solver=>"solver",
+                                              Simulator=>"simulator",
+                                              FeatureExpander=>"featureexpander",
+                                              AnnealerParam=>"annealer",
+                                              ExperienceReplayer=>"experiencereplayer",
+                                              SolverHistory=>"solverhistory")
+function save(x...;fname::AbstractString="rl_save.jld",verbose::Bool=true)
+  if splitext(fname)[2] != ".jld"
+    warning("Writing to file: $fname with improper extension!")
+  end
+  jldopen(fname,"w") do file
+    addrequire(file,ReinforcementLearning)
+    for var in x
+      if typeof(var) in keys(name_type_dict)
+        write(file,name_type_dict[typeof(var)],var)
+      elseif typeof(var) == Policy
+        write(file,"policy",string(typeof(var)))
+        save(var,file)
+      end
+    end
+  end
+  if verbose
+    println("Wrote policy to \"$fname\"!")
+  end
+  return fname
+end
+
+function load(fname::AbstractString;verbose::Bool=true)
+  #check existence
+  data = JLD.load(fname)
+  if "policy" in keys(data)
+    println("Call `load_policy(file_name,feature_function)` to load the policy!")
+    #load_policy!(data["policy"],data)
+  end
+  return data
+end
+
+#NOTE: this probably doesn't work--exporting not supported
+function load!{T}(x::T,fname::AbstractString;verbose::Bool=true)
+  #check existence
+  if !(T in keys(name_type_dict))
+    error("Loading of type: \"$T\" via load!() is not supported!")
+  end
+  c = jldopen(fname, "r") do file
+    t = read(file, name_type_dict[T])
+  end
+  return t
+end
+
+#No JldFile type :(
+#TODO: remove this?
+save(x::Policy,file) = save(x,file) #see policy.jl for specific methods
+
+#=
+Can potentially do more fine-grained loading, i.e.:
+  load!(p::Policy;fname=...) = read(file,"policy)")
+=#
 
 end #mdule

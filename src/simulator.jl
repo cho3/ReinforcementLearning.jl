@@ -42,10 +42,10 @@ end
 #TODO: policy types should probably have the feature function built in as a matter of fact
 #TODO: parallelize
 #TODO: handle saving histories for visualization
-function simulate(sim::Simulator,bbm::BlackBoxModel,policy::Policy)
+function simulate(sim::Simulator,bbm::BlackBoxModel,policy::Policy,msg::AbstractString="")
   R_net = zeros(sim.nb_sim)
   if sim.verbose
-    println("Simulating!")
+    print("\rSimulating!")
   end
   for ep = 1:sim.nb_sim
     R_net[ep] = __simulate(sim,bbm,policy)
@@ -53,14 +53,14 @@ function simulate(sim::Simulator,bbm::BlackBoxModel,policy::Policy)
       print("\r")
       u = mean(R_net[1:ep])
       v = std(R_net[1:ep])
-      print("Simulation $(ep), Average Total Reward: $(round(u,3))+/-$(round(v,3)), 95% Confidence Interval: ($(round(u-1.94*v,3)),$(round((u+1.94*v),3))")
+      print("$(msg)Simulation $(ep), Average Total Reward: $(round(u,3))+/-$(round(v,3)), 95% Confidence Interval: ($(round(u-1.94*v,3)),$(round((u+1.94*v),3))\t\t\t\t\t\t ")
     end
   end
   if sim.visualizer != __visualizer
     __viz_sim(sim,bbm,policy)
   end
   #compute relevant statistic, e.g.
-  return mean(R_net)
+  return mean(R_net), std(R_net)
 end
 
 #run a single simulation
