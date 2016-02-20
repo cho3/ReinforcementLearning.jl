@@ -232,6 +232,8 @@ function expand(expander::iFDDExpander,phi::RealVector)
       #NOTE: i think the issue is here--how to do sorted power set?
       phi[offset+k] = 1.
       push!(active_indices,offset+k)
+      delete!(active_indices,i)
+      delete!(active_indices,j)
       #remove i and j from active indices?
       phi[i] = 0
       phi[j] = 0
@@ -375,24 +377,28 @@ end
 #pad!(x::SparseMatrixCSC,nb_new_feat::Int) = x.m += nb_new_feat
 #pad!{T}(x::Array{T,1},nb_new_feat::Int) = append!(x,zeros(T,nb_new_feat))
 
-function pad!(x::SparseMatrixCSC,nb_new_feat::Int,interval_length::Int)
+function pad!(x::SparseMatrixCSC,nb_new_feat::Int,interval_length::Int,val::Float64=0.)
   assert(mod(length(x),interval_length)== 0)
   intervals = length(x)/interval_length
   x.m += nb_new_feat*intervals
   #go through each element, greater than interval, incrememnt accordingly
-  #can probably do in one pass
+  #can probably do in one pass\
   for (i,ind) in enumerate(x.rowval)
     x.rowval[i] += floor(Integer,ind/interval_length)*nb_new_feat
   end
+  if val != 0.
+    new_inds = vec([i+convert(Int,j*interval_length+(j-1)*nb_new_feat) for i=1:nb_new_feat, j=1:intervals])
+    x[new_inds] = val
+  end
 end
 
-function pad!{T}(x::Array{T,1},nb_new_feat::Int,interval_length::Int)
+function pad!{T}(x::Array{T,1},nb_new_feat::Int,interval_length::Int,val::T=zero(T))
   assert(mod(length(x),interval_length)== 0)
   intervals = length(x)/interval_length
   #star from the bottom
   for i = intervals:-1:1
     for j = 1:nb_new_feat
-      insert!(x,convert(Int,i*interval_length+1),0.)
+      insert!(x,convert(Int,i*interval_length+1),val)
     end
   end
 end

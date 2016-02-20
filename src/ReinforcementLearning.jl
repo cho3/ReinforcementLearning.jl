@@ -42,7 +42,7 @@ export Model
 export ActionSpace, domain, DiscreteActionSpace
 export BlackBoxModel, init, isterminal, next
 export EpsilonGreedyPolicy, SoftmaxPolicy, Policy, DiscretePolicy, weights, action, range, length
-export Solver, Simulator, solve, simulate
+export Solver, Simulator, solve, simulate, parallel_simulate
 export ForgetfulLSTDParam, SARSAParam, TrueOnlineTDParam, LSPIParam, QParam, GQParam
 export MPCPolicy
 export Minibatcher, NullMinibatcher, UniformMinibatcher
