@@ -10,6 +10,7 @@ type BlackBoxModel{T}
   init::Function
   model::Model
   rng::AbstractRNG
+  sasp_reward::Bool
 end
 function BlackBoxModel(m::Model,
                           init::Function,
@@ -17,33 +18,11 @@ function BlackBoxModel(m::Model,
                           reward::Function,
                           isterminal::Function;
                           observe::Function=__observe,
-                          rng::AbstractRNG=MersenneTwister(123213))
+                          rng::AbstractRNG=MersenneTwister(123213),
+                          sasp_reward::Bool=false)
   s = init(m,rng)
-  return BlackBoxModel(s,isterminal,next,observe,reward,init,m,rng)
+  return BlackBoxModel(s,isterminal,next,observe,reward,init,m,rng,sasp_reward)
 end
-
-"""
-#Internal constructor
-function BlackBoxModel{T}(model::Model,
-                        init::Function,
-                        next_state::Function,
-                        reward::Function,
-                        isterminal::Function;
-                        observe::Function=_ _ observe,
-                        rng::AbstractRNG=MersenneTwister(349857435),
-                        state::T=init(model,rng))
-  self = new()
-  self.model = model
-  self.init = init
-  self.next_state = next_state
-  self.reward = reward
-  self.isterminal = isterminal
-  self.observe = observe
-  self.rng = rng
-  self.state = state
-  return self
-end
-"""
 
 function init(bbm::BlackBoxModel,rng::AbstractRNG=bbm.rng)
   bbm.state = bbm.init(bbm.model,rng)
@@ -53,9 +32,14 @@ function init(bbm::BlackBoxModel,rng::AbstractRNG=bbm.rng)
 end
 
 function next{T}(bbm::BlackBoxModel, action::T,rng::AbstractRNG=bbm.rng)
-  bbm.state = bbm.next_state(rng,bbm.model,bbm.state,action)
+  sp = bbm.next_state(rng,bbm.model,bbm.state,action)
+  if bbm.sasp_reward
+    r = bbm.reward(rng,bbm.model,bbm.state,action,sp)
+  else
+    r = bbm.reward(rng,bbm.model,bbm.state,action)
+  end
+  bbm.state = sp
   o = bbm.observe(rng,bbm.model,bbm.state,action)
-  r = bbm.reward(rng,bbm.model,bbm.state,action)
   return r,o
 end
 

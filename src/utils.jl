@@ -189,7 +189,7 @@ sample(rng::AbstractRNG,a::AbstractArray, wv::WeightVec) = a[sample(rng,wv)]
 function powerset{T}(x::Union{Vector{T},Set{T}})
   result = Vector{T}[[]] #orig code
   for elem in x,j in eachindex(result)
-    push!(result,[result[j];elem]) #orig 
+    push!(result,[result[j];elem]) #orig
   end
   return result
 end

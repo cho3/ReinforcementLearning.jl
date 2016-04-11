@@ -21,7 +21,7 @@ function sim_stats(hist::R_Hist,discount::Float64=0.99)
     end
     Rs[ep] = R
   end
-  return mean(Rs), std(Rs)
+  return mean(Rs), sem(Rs)
 end
 
 type Simulator
@@ -71,15 +71,17 @@ end
 #TODO: handle saving histories for visualization
 function simulate(sim::Simulator,bbm::BlackBoxModel,policy::Policy,msg::AbstractString="")
   R_net = zeros(sim.nb_sim)
+  early_terms = 0.
   if sim.verbose
     print("\rSimulating!")
   end
   for ep = 1:sim.nb_sim
-    R_net[ep] = __simulate(sim,bbm,policy,ep)
+    R_net[ep], early_term = __simulate(sim,bbm,policy,ep)
+    early_terms += early_term
     if sim.verbose && (mod(ep,sim.display_interval) == 0)
       print("\r")
       u = mean(R_net[1:ep])
-      v = std(R_net[1:ep])
+      v = sem(R_net[1:ep])
       print("$(msg)Simulation $(ep), Average Total Reward: $(round(u,3))+/-$(round(v,3)), 95% Confidence Interval: ($(round(u-1.94*v,3)),$(round((u+1.94*v),3))\t\t\t\t\t\t ")
     end
   end
@@ -87,12 +89,13 @@ function simulate(sim::Simulator,bbm::BlackBoxModel,policy::Policy,msg::Abstract
     __viz_sim(sim,bbm,policy)
   end
   #compute relevant statistic, e.g.
-  return mean(R_net), std(R_net)
+  return mean(R_net), sem(R_net), early_terms/sim.nb_sim
 end
 
 function parallel_simulate(sim::Simulator,bbm::BlackBoxModel,policy::Policy,msg::AbstractString="")
   #each simulation instance needs its own blackboxmodel, Policy
   R_net = SharedArray(Float64,sim.nb_sim)
+  @everywhere early_terms = 0.
   #=
   R_net = collect(1:sim.nb_sim)
   if sim.verbose; print("\rSimulating Parallelly!"); end
@@ -108,13 +111,14 @@ function parallel_simulate(sim::Simulator,bbm::BlackBoxModel,policy::Policy,msg:
     #println("Hello from process!")
     _bbm = deepcopy(bbm)
     _policy = deepcopy(policy)
-    R_net[ep] = __simulate(sim,_bbm,_policy,ep)
+    R_net[ep],early_term = __simulate(sim,_bbm,_policy,ep)
+    early_terms += early_term
   end
   # =#
   #println("Before PMAP")
   #@async R_net = pmap(p_sim,R_net)
   #println("PMAP: $R_net")
-  return mean(R_net), std(R_net)
+  return mean(R_net), sem(R_net), early_terms/sim.nb_sim
 end
 
 
@@ -122,6 +126,9 @@ end
 function __simulate(sim::Simulator,bbm::BlackBoxModel,policy::Policy,ep::Int=1)
   #println("Episode $ep")
   R_tot = 0.
+  early_term = 0.
+  break_flag = false
+  init!(policy)
   s = init(bbm,sim.simRNG)
   a = action(policy,s) #TODO: stuff
   for t = 0:(sim.nb_timesteps-1)
@@ -133,19 +140,25 @@ function __simulate(sim::Simulator,bbm::BlackBoxModel,policy::Policy,ep::Int=1)
     if sim.save_rewards
       sim.R_hist.Rs[ep][t] = r
     end
-    if isterminal(bbm,a_,sim.simRNG)
+    if break_flag
       break
+    end
+    if isterminal(bbm,a_,sim.simRNG)
+      early_term = 1.
+      break_flag = true
+      #break
     end
     #push the update frame up one time step as it were
     s = s_
     a = a_
   end #t
   #println("Got reward $R_tot")
-  return R_tot
+  return R_tot, early_term
 end
 
 function __viz_sim(sim::Simulator,bbm::BlackBoxModel,policy::Policy)
 
+  init!(policy)
   s = init(bbm,sim.simRNG)
   a = action(policy,s) #TODO: stuff
   S = typeof(s)[s]
@@ -167,9 +180,9 @@ function __viz_sim(sim::Simulator,bbm::BlackBoxModel,policy::Policy)
     a = a_
   end #t
   sim.hist = History(S,A)
-  f = figure()
-  @manipulate for i = 1:length(S); withfig(f) do
-    sim.visualizer(bbm.model,S[i],A[i]) end
-  end
+  #f = figure()
+  #@manipulate for i = 1:length(S); withfig(f) do
+  #  sim.visualizer(bbm.model,S[i],A[i]) end
+  #end
 end
 __visualizer{S,T}(s::Array{S,1},a::Array{T,1}) = print("Empty Visualizer")

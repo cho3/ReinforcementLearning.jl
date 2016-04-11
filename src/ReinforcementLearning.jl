@@ -36,26 +36,34 @@ solvers/
 #etc....
 #"""
 
+__precompile__()
+
 module ReinforcementLearning
 
 export Model
-export ActionSpace, domain, DiscreteActionSpace
+export ActionSpace, domain, DiscreteActionSpace, ContinuousActionSpace
 export BlackBoxModel, init, isterminal, next
 export EpsilonGreedyPolicy, SoftmaxPolicy, Policy, DiscretePolicy, weights, action, range, length
+export NullPolicy
+export LinearPolicy, SigmoidPolicy, GaussianPolicy
 export Solver, Simulator, solve, simulate, parallel_simulate
 export ForgetfulLSTDParam, SARSAParam, TrueOnlineTDParam, LSPIParam, QParam, GQParam
+export COPDACQ, COPDACGQ, StochasticActorCritic
 export MPCPolicy
+export RateAdapter, ExponentialRateAdapter, StepRateAdapter, iFDDRateAdapter, InverseRateAdapter
 export Minibatcher, NullMinibatcher, UniformMinibatcher
 export AnnealerParam, NullAnnealer, MomentumAnnealer, NesterovAnnealer, AdagradAnnealer,AdadeltaAnnealer, AdamAnnealer,RMSPropAnnealer
 export ExperienceReplayer, NullExperienceReplayer, UniformExperienceReplayer
-export FeatureExpander, ActionFeatureExpander, NullFeatureExpander, iFDDExpander,iFDDProperExpander, expand, update!, pad!, expand2
+export FeatureExpander, ActionFeatureExpander, NullFeatureExpander, iFDDExpander,iFDDProperExpander
+export expand, update!, pad!, expand2, TrueNullFeatureExpander, TimeCatExpander,iFDDCrossExpander, init!
 export generate_tilecoder, test, bin, generate_radial_basis, sample, powerset, sortedpowerset
 export save, load, load_policy
+export GradientClipper
 
 using PyPlot #for solver.grandiloquent
 using Interact
-import Base: dot, length, values
-import StatsBase: sample, WeightVec,values #for policy.SoftmaxPolicy
+import Base: dot, length, values, convert, spzeros
+import StatsBase: sample, WeightVec,values,sem #for policy.SoftmaxPolicy
 using HypothesisTests #for utils.test...
 using JLD #for saving/loading/model persistence
 using NLopt #for MPC
@@ -68,6 +76,7 @@ typealias RealMatrix Union{Array{Float64,2},Array{Int,2},SparseMatrixCSC{Float64
 dot(x::Array,y::SparseMatrixCSC) = (x'*y)[1]
 dot(x::SparseMatrixCSC,y::Array) = dot(y,x)
 dot(x::SparseMatrixCSC,y::SparseMatrixCSC) = (x'*y)[1]
+spzeros(n::Int) = spzeros(n,1)
 
 import Base.assert #in order for other asserts to be allowed
 function assert(expr,val,fn::Function= ==,varname::AbstractString="")
@@ -77,9 +86,12 @@ function assert(expr,val,fn::Function= ==,varname::AbstractString="")
 end
 
 abstract AnnealerParam
+abstract RateAdapter #TODO change name
 abstract ExperienceReplayer
 abstract Minibatcher
 abstract UpdaterParam
+abstract MCUpdater <: UpdaterParam
+abstract ActorCritic <: UpdaterParam
 abstract ActionSpace
 abstract Policy
 abstract Model
