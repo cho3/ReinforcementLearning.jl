@@ -390,18 +390,21 @@ type TimeCatExpander <: ActionFeatureExpander
   #k::Int #nb of time slices to queue
   memory::Tuple{RealVector,RealVector} #f_{t-1}, PHI_{t-1}
   last_vec::Tuple{RealVector,RealVector,RealVector} #to make it work with updating: f_{t}, f_{t-1},PHI_{t-1}
+  last_vec_::Tuple{RealVector,RealVector,RealVector}
   inframe_exp::FeatureExpander #in-frame expander (state space representation)
   crossframe_exp::FeatureExpander #cross frame expander (histories)
   action_exp::FeatureExpander #action feature expander?
 end
 TimeCatExpander(n,exp1,exp2,exp3) = TimeCatExpander((spzeros(n,1),spzeros(0,1),),
                                                 (spzeros(n,1),spzeros(n,1),spzeros(0,1),),
+                                                (spzeros(n,1),spzeros(n,1),spzeros(0,1),),
                                                 exp1,exp2,exp3)
 
 function expand3(exp::TimeCatExpander,phi::RealVector,phi_::RealVector)
-  f_ = expand(exp.inframe_exp,phi_)
-  f, PHI = exp.memory
-  f_ = expand(exp.crossframe_exp,f_,f,PHI)
+  #f_ = expand(exp.inframe_exp,phi_)
+  #f, PHI = exp.memory
+  #f_ = expand(exp.crossframe_exp,f_,f,PHI)
+  f_ = expand(exp.crossframe_exp,exp.last_vec_...) #TODO don't use expand fml
   f = expand(exp.crossframe_exp,exp.last_vec...) #this was calculated when it was expanded in the policy
   return f, f_
 end
@@ -413,8 +416,9 @@ function expand(exp::TimeCatExpander,phi::RealVector)
   phi_ = expand(exp.crossframe_exp,f_,f,PHI)
   PHI_ = phi_[length(PHI)+length(f)+length(f_)+1:end] #assumes expand(crossframe_exp,phi) adds to the end
   exp.memory = (f_,PHI_)
-  exp.last_vec = (f_,f,PHI)
-  assert(length(find(phi_)) > 0)
+  exp.last_vec = exp.last_vec_
+  exp.last_vec_ = (f_,f,PHI)
+  assert(countnz(phi_) > 0)
   return phi_
 end
 
@@ -429,6 +433,7 @@ function init!(exp::TimeCatExpander)
   last = exp.last_vec
   exp.memory = (spzeros(size(mem[1])...),spzeros(size(mem[2])...))
   exp.last_vec = (spzeros(size(last[1])...),spzeros(size(last[1])...),spzeros(size(last[3])...),)
+  exp.last_vec_ = (spzeros(size(last[1])...),spzeros(size(last[1])...),spzeros(size(last[3])...),)
 end
 
 function update!(exp::TimeCatExpander,phi::RealVector,del::Float64)
@@ -460,8 +465,13 @@ function update!(exp::TimeCatExpander,phi::RealVector,del::Float64)
                     (length(f_)+length(f)+length(PHI),new_feat2),
                     (length(f_)+length(f)+length(PHI)+length(PHI_),new_feat2)]
   #println(ret)
+  g_,g,GAM = exp.last_vec_
   #Pad memory!
   exp.last_vec = (pad!(f_,new_feat1,length(f_)),pad!(f,new_feat1,length(f)),pad!(PHI,new_feat2,length(PHI)),)
+  #println("last_vec_")
+  #println(exp.last_vec_)
+  exp.last_vec_ = (pad!(g_,new_feat1,length(g_)),pad!(g,new_feat1,length(g)),pad!(GAM,new_feat2,length(GAM)),)
+  #println(exp.last_vec_)
   exp.memory = (pad!(exp.memory[1],new_feat1,length(exp.memory[1])),pad!(exp.memory[2],new_feat2,length(exp.memory[2])),)
   return ret
   #TODO: dictionary representation--where to insert other than end
@@ -505,14 +515,16 @@ function iFDDCrossExpander(A::ContinuousActionSpace;xi::Float64=0.5)
   return iFDDCrossExpander(A_indices,learned_features,learned_feature_set,err_dict,app_dict,xi)
 end
 
-
+#NOTE probably modifyign copies of stuff here
 function expand(expander::iFDDCrossExpander,phi::RealVector...)
   _phi = spzeros(length(expander.learned_features),1)
   active_indices = [Set(find(f)) for f in phi]
   push!(active_indices,Set{Int}()) #this one is for PHI_
   #NOTE PHI_ not in phi...-->must add to end(somehow)
   #new_active_indices = Set{Int}()
-  phi = [f for f in phi]
+  phi = RealVector[deepcopy(f) for f in phi]
+  push!(phi,_phi)
+  #TODO add _phi to phi
   offset = 0#length(phi) + sum(expander.shift) #???
   #phi = vcat(phi,_phi)
   #NOTE: order matters for learned features!
@@ -537,9 +549,11 @@ function expand(expander::iFDDCrossExpander,phi::RealVector...)
   for _f in phi[2:end]
     f = vcat(f,_f)
   end
-  phi = vcat(f,_phi)
+  #println(f)
+  #phi = vcat(f,_phi)
 
-  return vec(phi)
+  assert(countnz(phi) > 0)
+  return vec(f)
 end
 
 #TODO: figure out a way to make sure the state representation doesnt explode
@@ -547,6 +561,7 @@ end
 function update!(expander::iFDDCrossExpander,del::Float64,phi::RealVector...)
   _active_indices = [find(f) for f in phi]
   #TODO get active_indices into form: [](i,idx)]
+  #println("eyy")
   # idx'th index of the i'th feature vector
   active_indices = [(0,0) for _ in 1:sum([length(f) for f in _active_indices])]
   idz = 1

@@ -131,7 +131,8 @@ end
 behavior(p::EpsilonGreedyPolicy) = typeof(p.behavior) != NullPolicy ? p.behavior : 0
 range(p::EpsilonGreedyPolicy) = p.A
 function action{T}(p::EpsilonGreedyPolicy,u::UpdaterParam,s::T)
-
+  #breaking this out because expand might have memory things....
+  f = expand(p.exp,p.feature_function(s))
   r = rand(p.rng)
   if r < p.eps
     return domain(p.A)[rand(p.rng,1:length(p.A))]
@@ -143,10 +144,10 @@ function action{T}(p::EpsilonGreedyPolicy,u::UpdaterParam,s::T)
   Qs = zeros(length(p.A))
   for (i,a) in enumerate(domain(p.A))
     #println(size(weights(u)))
-    f = expand2(p.exp,p.feature_function(s),a)
+    phi = expand(p.exp,f,a)
     #println(size(f))
     #println(size(weights(u)))
-    Qs[i] = dot(weights(u),f)
+    Qs[i] = dot(weights(u),phi)
     #Qs[i] = dot(weights(u),expand2(p.exp,p.feature_function(s),a)) #where is a sensible place to put w?
   end
   return domain(p.A)[indmax(Qs)]

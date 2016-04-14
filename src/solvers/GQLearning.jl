@@ -62,7 +62,8 @@ function update!{T}(param::GQParam,
   f, f_ = expand3(exp,phi,phi_)
   #f_ = expand(exp,phi_)
   #expand with respect to actions
-  phi = expand(exp::ActionFeatureExpander,f,a)
+  #phi = expand(exp::ActionFeatureExpander,f,a)
+  phi = expand(exp,f,a)
   #phi_ = expand(exp::ActionFeatureExpander,f_,a_)
   #NOTE: this might be a singleton array
   #println(size(phi))
