@@ -156,6 +156,39 @@ function __simulate(sim::Simulator,bbm::BlackBoxModel,policy::Policy,ep::Int=1)
   return R_tot, early_term
 end
 
+function simulate_history(sim::Simulator,bbm::BlackBoxModel,policy::Policy)
+
+  break_flag = false
+  init!(policy)
+  s = init(bbm,sim.simRNG)
+  a = action(policy,s) #TODO: stuff
+  S = typeof(s)[]
+  A = typeof(a)[]
+  R = Real[]
+  G = Real[]
+  for t = 0:(sim.nb_timesteps-1)
+    r, s_ = next(bbm,a,sim.simRNG)
+    push!(S,s)
+    push!(A,a)
+    push!(R,r)
+    push!(G,break_flag? 0.: sim.discount^t)
+    #println("T=$t")
+    a_ = action(policy,s_)
+    if break_flag
+      break
+    end
+    if isterminal(bbm,a_,sim.simRNG)
+      early_term = 1.
+      break_flag = true
+      #break
+    end
+    #push the update frame up one time step as it were
+    s = s_
+    a = a_
+  end #t
+  return S, A, R, G
+end
+
 function __viz_sim(sim::Simulator,bbm::BlackBoxModel,policy::Policy)
 
   init!(policy)

@@ -444,13 +444,61 @@ end
 ####################################################################
 
 #Finite difference policy gradient
+#TODO figure out how to get a reference rollout
+nb_samples(::MCUpdater) = 1
+stopping_criterion(::MCUpdater) = false #placeholder
+
 type FiniteDifferencePolicyGradient <: MCUpdater
   policy::Policy #actual representation arbitrary--get squashed weights out via weights()
   eps::Float64 #fixed with or sigma for
   is_gaussian::Bool #else unif_rand
   tol::Float64
   abs_tol::Bool #else rel_tol
+  nb_samples::Int
 end
+
+nb_samples(fd::FiniteDifferencePolicyGradient) = fd.nb_samples
+
+function statistics{T}(::FiniteDifferencePolicyGradient,S::Array{RealVector,1},A::Array{T,1},R::Array{Real,1},GAM::Array{Real,1})
+  #return total reward
+  r_tot = 0.
+  for (t,r) in enumerate(R)
+    r_tot += r*GAM[t]^(t-1)
+  end
+  return r_tot
+end
+
+function aggregate_statistics(fd::FiniteDifferencePolicyGradient,p::Policy,stats::Array{Real,1})
+  return weights(p)-weights(fd.policy), mean(stats)
+end
+
+function update!(fd::FiniteDifferencePolicyGradient,
+                    annealer::AnnealerParam,
+                    mb::Minibatcher,
+                    stats::Array{Tuple{RealVector,Real},1},
+                    lr::Float64)
+  dW = zeros(length(stats[1]),length(stats))
+  dJ = length(stats)
+  for (i,(dw,J)) in enumerate(stats)
+    dW[:,i] = dw
+    dJ[i] = J
+  end
+  dth = (transpose(dW)*dW)\(transpose(dW)*dJ)
+  #update lr....
+  update!(fd.policy, desquash(fd.policy,squash(fd.policy.weights)+anneal!(annealer,minibatch!(mb,dth,1),lr,1))) #TODO
+  return fd
+end
+
+function mutate!(fd::FiniteDifferencePolicyGradient,rng::AbstractRNG)
+  p = deepcopy(fd.policy)
+  #add some nooise according to stuff
+  return p
+end
+
+agg_stat_type(::FiniteDifferencePolicyGradient) = (spzeros(1,1),0.)
+stat_type(::FiniteDifferencePolicyGradient) = 0.
+
+#############################################################
 
 
 type ReinforcePolicyGradient <: MCUpdater
@@ -459,19 +507,187 @@ type ReinforcePolicyGradient <: MCUpdater
   abs_tol::Bool #else rel_tol
 end
 
+function statistics{T}(rf::ReinforcePolicyGradient,S::Array{RealVector,1},A::Array{T,1},R::Array{Real,1},GAM::Array{Real,1})
+  #return total reward
+  r_tot = 0.
+  loggrad = 0.
+  for (t,r) in enumerate(R)
+    r_tot += r*GAM[t]^(t-1)
+    if t == 1
+      #TODO check signature
+      loggrad = loggradient(rf.policy,rf.policy.feature_function(S[t]),A[t])
+    else
+      loggrad += loggradient(rf.policy,rf.policy.feature_function(S[t]),A[t])
+    end
+  end
+  return loggrad, r_tot
+end
+
+function aggregate_statistics(rf::ReinforcePolicyGradient,p::Policy,stats::Array{Tuple{RealVector,Real},1})
+  return stats
+end
+
+function update!(rf::ReinforcePolicyGradient,
+                  annealer::AnnealerParam,
+                  mb::Minibatcher,
+                  stats::Array{Tuple{RealVector,Real},1},
+                  lr::Float64)
+  b_num = mean([stat[2]*(stat[1].^2) for stat in stats])
+  b_den = mean([stat[1].^2 for stat in stats])
+  b = b_num./b_den #optimal baseline estimate for variance reduction
+
+  dth = mean([stat[1]*(stat[2]-b) for stat in stats])
+  #update lr....
+  update!(rf.policy,desquash(rf.policy,squash(rf.policy.weights)+anneal!(annealer,minibatch!(mb,dth,1),lr,1))) #TODO
+  return fd
+end
+
+function mutate!(rf::ReinforcePolicyGradient,rng::AbstractRNG)
+  #p = deepcopy(fd.policy)
+  #add some nooise according to stuff
+  return rf.policy #since using analytical gradient
+end
+
+agg_stat_type(::ReinforcePolicyGradient) = (spzeros(1,1),0.)
+stat_type(::ReinforcePolicyGradient) = (spzeros(1,1),0.)
+##################################################################
 
 type NaturalPolicyGradient <: MCUpdater
   policy::Policy
   tol::Float64
   abs_tol::Bool #else rel_tol
 end
+
+
+function statistics{T}(ng::NaturalPolicyGradient,S::Array{RealVector,1},A::Array{T,1},R::Array{Real,1},GAM::Array{Real,1})
+  #return total reward
+  r_tot = 0.
+  loggrad = 0.
+  for (t,r) in enumerate(R)
+    r_tot += r*GAM[t]^(t-1)
+    if t == 1
+      #TODO check signature
+      loggrad = loggradient(ng.policy,ng.policy.feature_function(S[t]),A[t])
+    else
+      loggrad += loggradient(ng.policy,ng.policy.feature_function(S[t]),A[t])
+    end
+  end
+  #NOTE two-step statistic thing--how do?
+  return loggrad, r_tot
+end
+
+function aggregate_statistics(ng::NaturalPolicyGradient,p::Policy,stats::Array{Tuple{RealVector,Real},1})
+  return stats
+end
+
+function update!(ng::NaturalPolicyGradient,
+                  annealer::AnnealerParam,
+                  mb::Minibatcher,
+                  stats::Array{Tuple{RealVector,Real},1},
+                  lr::Float64)
+  F = mean([stat[1]*transpose(stat[1]) for stat in stats])
+  g = mean([stat[1]*stat[2] for stat in stats])
+  phi = mean([stat[1] for stat in stats])
+  r = mean([stat[2] for stat in stats])
+  M = length(stats)
+  Q = (1/M)*(1+transpose(phi)*((M*F-phi*transpose(phi))\phi))
+  b = Q*(r-transpose(phi)*(F\g))
+  dth = F\(g-phi*b)
+  #update lr...
+  update!(ng.policy, desquash(ng.policy,squash(ng.policy.weights)+anneal!(annealer,minibatch!(mb,dth,1),lr,1))) #TODO
+  return ng
+end
+
+function mutate!(ng::NaturalPolicyGradient,rng::AbstractRNG)
+  #p = deepcopy(fd.policy)
+  #add some nooise according to stuff
+  return ng.policy #since using analytical gradient
+end
+
+agg_stat_type(::NaturalPolicyGradient) = (spzeros(1,1),0.)
+stat_type(::NaturalPolicyGradient) = (spzeros(1,1),0.)
+
 #################################################################
 
 type CrossEntropy <: MCUpdater
   policy::Policy
-#  proposal_distr::distribution
+#  proposal_distr::distribution #for now, just use gaussian--well defined MLE
+  mean_std::Tuple{RealVector,Union{RealMatrix,RealVector}}
+  allow_correlation::Bool #make it false
+  nb_samples::Int
   nb_elite_samples::Int
+  threshold::Float64
+  function CrossEntropy(p::Policy;
+                        mean::RealVector=zeros(length(squash(p))),
+                        allow_correlation::Bool=false,
+                        nb_samples::Int=100,
+                        nb_elite_samples::Int=15,
+                        std::Union{RealMatrix,RealVector}=allow_correlation?100.*eye(length(squash(p))):100*ones(length(squash(p))),
+                        threshold::Float64=0.8)
+    self = new()
+    self.policy = p
+    self.mean_std = (mean,std)
+    self.allow_correlation = allow_correlation
+    self.nb_elite_samples = nb_elite_samples
+    self.nb_samples = nb_samples
+    self.threshold = threshold
+    return self
+  end
 end
+
+nb_samples(ce::CrossEntropy) = ce.nb_samples
+
+function statistics{T,U}(::CrossEntropy,S::Array{U,1},A::Array{T,1},R::Array{Real,1},GAM::Array{Real,1})
+  #return total discounted reward
+  r_tot = 0.
+  for (t,r) in enumerate(R)
+    r_tot += r*GAM[t]
+  end
+  return r_tot
+end
+
+function aggregate_statistics(::CrossEntropy,p::Policy,stats::RealVector)
+  return squash(p), mean(stats)
+end
+
+function update!(ce::CrossEntropy,
+                  annealer::AnnealerParam,
+                  mb::Minibatcher,
+                  stats::Array{Tuple{Array{Float64,1},Float64},1},
+                  lr::Float64)
+  sorted_stats = sort(stats,by=(x)->x[2],rev=true) #NOTE maximizing
+  elite = sorted_stats[1:ce.nb_elite_samples]
+  #MLE update
+  weights = [w for (w,val) in elite]
+  u = mean(weights)
+  if ce.allow_correlation
+    v = mean([(w-u)*transpose(w-u) for w in weights])
+    v = transpose(chol(v)) #since v'*v must equal cov matrix
+  else
+    v = std(hcat(weights...),2)
+  end
+
+  #v = std(weights) # XXX this won't actually work on an array of arrays
+  # TODO actually make this a covariance matirx instead
+  ce.mean_std = (u,v)
+
+  return norm(v) < ce.threshold
+end
+
+function mutate!(ce::CrossEntropy,rng::AbstractRNG)
+  u,v = ce.mean_std
+  if ce.allow_correlation
+    w = u + v*randn(rng,length(u))
+  else
+    w = u + v.*randn(rng,length(u))
+  end
+  #ce.policy.weights = w #TODO more modular
+  set!(ce.policy,desquash(ce.policy,w))
+  return ce.policy
+end
+
+agg_stat_type(::CrossEntropy) = ([0.],0.)
+stat_type(::CrossEntropy) = 0.
 #=
 function sufficient_statistics(updater::CrossEntropy,history::MCHistory)
 

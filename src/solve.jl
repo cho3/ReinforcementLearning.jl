@@ -17,20 +17,43 @@ function truncate!(stats::SolverHistory,ind::Int)
   stats.w_norm = stats.w_norm[1:ind]
 end
 
-function display_stats(stats::SolverHistory)
+function moving_average(arr::AbstractArray,w::Int=25)
+  if w <= 1
+    return arr
+  end
+  val = 0.#
+  X = zeros(size(arr))
+  for i = 1:length(arr)
+    #x = arr[i]
+    n = w
+    val += arr[i]
+    if i > w
+      val -= arr[i-w]
+    else
+      n = i
+    end
+
+    X[i] = val/n
+  end
+
+  return X
+
+end
+
+function display_stats(stats::SolverHistory,smoothing::Int=1)
   #subplot
   subplot(511)
-  plot(stats.R_tot)
+  plot(moving_average(stats.R_tot,smoothing))
   xlabel("Episode")
   ylabel("Total Reward")
 
   subplot(512)
-  plot(stats.td_err)
+  plot(moving_average(stats.td_err,smoothing))
   xlabel("Time Step")
   ylabel("TD Error")
 
   subplot(513)
-  plot(stats.q_est)
+  plot(moving_average(stats.q_est,smoothing))
   xlabel("Time Step")
   ylabel("Q Value Estimate")
 
@@ -60,6 +83,7 @@ type Solver
   gc::GradientClipper
   verbose::Bool
   display_interval::Int
+  smooth_plots::Int
   grandiloquent::Bool #make plots?
   stats::SolverHistory
   expma_param::Float64
@@ -82,7 +106,8 @@ type Solver
                     sim_interval::Int=100,
                     simulator::Simulator=Simulator(),
                     ra::RateAdapter=NullRateAdapter(lr),
-                    gc::GradientClipper=GradientClipper())
+                    gc::GradientClipper=GradientClipper(),
+                    smooth_plots::Int=25)
     self = new()
     #self.lr = lr
     self.ra = ra
@@ -105,6 +130,7 @@ type Solver
     self.sim_interval = sim_interval
     self.simulator = simulator
     self.gc = gc
+    self.smooth_plots = smooth_plots
 
     return self
   end
@@ -116,7 +142,9 @@ end
 #       total reward (per episode), td error (per time step), est. q-value (per time step)
 #TODO: early stopping?
 function solve(solver::Solver,bbm::BlackBoxModel,policy::Policy)
-
+  if (typeof(solver.updater) <: MCUpdater)
+    error("Use the solve(::Solver,::BlackBoxModel) signature instead!")
+  end
   #TODO: maintain Q-statistics from update in order to plot things
   #maintain statistics?
   solver.best_policy = deepcopy(policy)
@@ -201,7 +229,7 @@ function solve(solver::Solver,bbm::BlackBoxModel,policy::Policy)
   truncate!(solver.stats,ind-1)
   if solver.grandiloquent
     #plot each of the major statistics
-    display_stats(solver.stats)
+    display_stats(solver.stats,solver.smooth_plots)
   end
 
   if best_score == -Inf
@@ -220,21 +248,37 @@ end
 
 function solve(solver::Solver,bbm::BlackBoxModel)
 
+  if !(typeof(solver.updater) <: MCUpdater)
+    error("Use the solve(::Solver,::BlackBoxModel,::Policy) signature instead!")
+  end
 
   #init stuff
   for iter = 1:solver.nb_episodes #max_iter
 
-      for sim_idx = 1:solver.sim.nb_sim
+      #TODO parallelize
+      stats = typeof(agg_stat_type(solver.updater))[agg_stat_type(solver.updater) for _=1:nb_samples(solver.updater)]
+      for i = 1:nb_samples(solver.updater) #whatever
         #permute policy
-        #run simulation
-        #save statistics based on updater
+        p = mutate!(solver.updater,solver.simRNG)
+        #run simulationa\s
+        stat = typeof(stat_type(solver.updater))[stat_type(solver.updater) for _ = 1:solver.simulator.nb_sim]
+        for sim_idx = 1:solver.simulator.nb_sim #determines accuracy of R
+          S,A,R,G = simulate_history(solver.simulator,bbm,p) #something
+          stat[sim_idx] = statistics(solver.updater,S,A,R,G)
+        end
+        stats[i] = aggregate_statistics(solver.updater,p,stat)
       end
+      lr = learning_rate!(solver.ra,1,iter,zeros(1),solver.updater)
+      is_stopped = update!(solver.updater,solver.annealer,solver.mb,stats,lr)
       #aggregate statistics
       #update updater
-      if stopping_criterion()
+      if solver.verbose && mod(iter,solver.display_interval) == 0
+        println("Iter $iter")
+      end
+      if is_stopped
         #store statistics
         break
       end
   end
-
+  return solver.updater.policy
 end

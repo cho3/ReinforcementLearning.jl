@@ -597,3 +597,63 @@ function update!(expander::iFDDCrossExpander,del::Float64,phi::RealVector...)
   end #i
   return nb_new_feat
 end
+
+function label(expander::iFDDCrossExpander,labels::Array{AbstractString,1}=AbstractString[])
+  #labels: name for each feature index
+  labels = Dict{Int,AbstractString}([i=>s for (i,s) in enumerate(labels)])
+  names = ["" for _ = 1:length(expander.learned_features)]
+  names_fn = [()->"" for _ = 1:length(expander.learned_features)]
+  for (k,((i,idx),(j,jdx))) in enumerate(expander.learned_features)
+    str = ""
+    """
+    1: label w/ t
+    2: label w/ t-1
+    3: names[idx] w/ t-1
+    4: names[idx] w/ t
+    """
+    if i < 3
+      s1 = get(labels,idx,str(idx))
+    end
+    if j < 3
+      s2 = get(labels,jdx,str(jdx))
+    end
+
+    if i in [1;4]
+      if j in [1;4]
+        names_fn[k] = (t)->string(s1,t,s2,t)
+      else
+        names_fn[k] = (t)->string(s1,t,s2,t-1) #t-1
+      end
+    else
+      if j in [1;4]
+        names_fn[k] = (t)->string(s1,t-1,s2,t)
+      else
+        names_fn[k] = (t)->string(s1,t-1,s2,t-1) #t-1
+      end
+    end
+
+    s = ["",""]
+    t = [0;0]
+    f = [()->"",()->""]
+    for (y,(x,xdx)) in enumerate(zip([i,j],[idx,jdk]))
+      if x == 1
+        f[y] = (t)->string(get(labels,xdx,str(xdx)),t)
+
+      elseif x == 2
+        f[y] = (t)->string(get(labels,xdx,str(xdx)),t-1)
+      elseif x == 3
+        f[y] = (t)->names_fn[xdx](t-1)
+      else
+        f[y] = (t)->names_fn[xdx](t)
+      end
+      s[y] = ""
+      t[y] = 0
+    end
+    str_fn[k] = (t)->string(f[1](t),f[2](t))
+
+    names[k] = str_fn[k](0)
+  end
+
+  return names
+
+end

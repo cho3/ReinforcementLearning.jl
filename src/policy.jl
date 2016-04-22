@@ -61,6 +61,10 @@ function load_policy(fname::AbstractString,feature_function::Function)
   return policy
 end
 
+update!(p::Policy,w) = begin p.weights += w end
+set!(p::Policy,w) = begin p.weights = w end
+squash(p::Policy) = vec(p.weights)
+desquash(p::Policy,w::Union{RealMatrix,RealVector}) = reshape(w,size(p.weights))
 ###################################################################
 #DiscretePolicy
 type DiscretePolicy <: Policy
@@ -467,6 +471,74 @@ function loggradient{S}(p::GaussianPolicy,phi::RealVector,a::S,i::Int)
   return hcat(grad_u,grad_v)
 end
 #########################################################################
+
+type FiniteStateController <: Policy
+  A::DiscreteActionSpace #or potentially a regressor at each node, but whatever
+  psi::Array{RealMatrix,1} #for each internal state: prob of each action/softmax matrix for each action given a feature vector
+  eta::Array{RealMatrix,1} #for each internal state: probability of shifting to another state given an observation
+  feature_function::Function
+  exp::FeatureExpander
+  current_state::Int #idx of current state
+  rng::AbstractRNG
+end
+
+update!(fsc::FiniteStateController,w) = begin fsc.psi += w[1]; fsc.eta += w[2] end
+set!(fsc::FiniteStateController,w) = begin fsc.psi = w[1]; fsc.eta = w[2] end
+init!(fsc::FiniteStateController) = begin fsc.current_state=1 end
+
+function action{T}(fsc::FiniteStateController,o::T)
+  phi = expand(fsc.exp,fsc.feature_function(o))
+  #transition internal state based on observation
+  #r = rand(fsc.rng)
+  w = WeightVec(exp(eta[fsc.current_state]*phi))
+  fsc.current_state = sample(fsc.rng,w)
+
+  #emit action according to softmax probability
+  v = WeightVec(exp(psi[fsc.current_state]*phi))
+  adx = sample(fsc.rng,v)
+  return domain(fsc.A)[adx]
+end
+
+
+function squash(fsc::FiniteStateController)
+  u = zeros(sum([length(p) for p in fsc.psi])+sum([length(p) for p in fsc.eta]))
+  offset = 0
+  for p in fsc.psi
+    v = vec(p)
+    d = length(v)
+    u[1+offset:d+offset] = v
+    offset += d
+  end
+  for p in fsc.eta
+    v = vec(p)
+    d = length(v)
+    u[1+offset:d+offset] = v
+    offset += d
+  end
+  return u
+end
+
+function desquash(fsc::FiniteStateController,phi::RealVector)
+  psi = [zeros(1,1) for _ in fsc.psi]
+  eta = [zeros(1,1) for _ in fsc.eta]
+  offset = 0
+  for (i,p) in enumerate(fsc.psi)
+    psi[i] = reshape(phi[1+offset:length(p)+offset],size(p))
+  end
+  for (i,p) in enumerate(fsc.eta)
+    eta[i] = reshape(phi[1+offset:length(p)+offset],size(p))
+  end
+  return psi, eta
+end
+
+function loggradient{S}(fsc::FiniteStateController,phi::RealVector,a::S,i::Int)
+
+end
+
+function gradient{S}(fsc::FiniteStateController,phi::RealVector,a::S,i::Int)
+
+end
+##########################################################################
 #NOTE: this miiiight not work and just pollute the namespace instead
 Policy(p::Union{EpsilonGreedyPolicy,SoftmaxPolicy},u::UpdaterParam,exp::FeatureExpander) =
                         DiscretePolicy(range(p),p.feature_function,weights(u),deepcopy(exp))
@@ -476,6 +548,10 @@ type ContinuousPolicy <: Policy
   p::Policy
   w::RealMatrix
 end
+update!(p::ContinuousPolicy,w::RealMatrix) = begin p.w += w end
+set!(p::ContinuousPolicy,w::RealMatrix) = begin p.w = w end
+squash(p::ContinuousPolicy) = vec(p.w)
+desquash(p::ContinuousPolicy,w::RealVector) = reshape(w,size(p.w))
 Policy(p::Union{SigmoidPolicy,LinearPolicy,GaussianPolicy},u::ActorCritic,exp::FeatureExpander) =
   ContinuousPolicy(p,weights(u))
 

@@ -8,16 +8,19 @@ type QParam <: UpdaterParam
   A::DiscreteActionSpace
   #feature_function::Function
   is_replacing_trace::Bool
+  consistent_action_gap::Bool
   function QParam(n::Int,A::DiscreteActionSpace;
                   lambda::Float64=0.95,
                   init_method::AbstractString="unif_rand",
-                  trace_type::AbstractString="replacing")
+                  trace_type::AbstractString="replacing",
+                  consistent_action_gap::Bool=false)
     self = new()
     self.w = init_weights(n,init_method)
     self.e = init_weights(n,"zero")#spzeros(n,1)
     self.lambda = lambda
     self.is_replacing_trace = lowercase(trace_type) == "replacing"
     self.A = A
+    self.consistent_action_gap = consistent_action_gap
     #self.feature_function = ff
 
     return self
@@ -57,7 +60,11 @@ function update!{T}(param::QParam,
   #phi_ = expand(exp::ActionFeatureExpander,f_,a_)
   #NOTE: this might be a singleton array
   q = dot(param.w,phi) #TODO: dealing with feature functions that involve state and action?
-  q_ = maximum([dot(param.w,expand(exp::ActionFeatureExpander,f_,_a)) for _a in domain(param.A)])
+  if param.consistent_action_gap && (phi == phi_)
+    q_ = q
+  else
+    q_ = maximum([dot(param.w,expand(exp::ActionFeatureExpander,f_,_a)) for _a in domain(param.A)])
+  end
   del = r + gamma*q_ - q #td error
   if param.is_replacing_trace
     param.e = vec(max(phi,param.e)) #NOTE: assumes binary features

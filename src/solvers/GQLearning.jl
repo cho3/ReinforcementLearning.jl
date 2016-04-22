@@ -9,13 +9,15 @@ type GQParam <: UpdaterParam
   lambda::Float64
   #rho::Float64
   A::DiscreteActionSpace
+  consistent_action_gap::Bool
   #feature_function::Function
   is_replacing_trace::Bool
   function GQParam(n::Int,A::DiscreteActionSpace;
                   lambda::Float64=0.95,
                   b::Float64=1e-4,
                   init_method::AbstractString="unif_rand",
-                  trace_type::AbstractString="replacing")
+                  trace_type::AbstractString="replacing",
+                  consistent_action_gap::Bool=false)
     self = new()
     self.w = init_weights(n,"zero")#spzeros(n,1)#init_weights(n,"zero")
     self.th = init_weights(n,init_method)
@@ -24,6 +26,7 @@ type GQParam <: UpdaterParam
     self.lambda = lambda
     self.is_replacing_trace = lowercase(trace_type) == "replacing"
     self.A = A
+    self.consistent_action_gap = consistent_action_gap
     #self.feature_function = ff
 
     return self
@@ -50,16 +53,16 @@ function update!{T}(param::GQParam,
                   er::ExperienceReplayer,
                   exp::FeatureExpander,
                   gc::GradientClipper,
-                  phi::RealVector,
+                  _phi::RealVector,
                   a::T,
                   r::Real,
-                  phi_::RealVector,
+                  _phi_::RealVector,
                   a_::T,
                   gamma::Float64,
                   lr::Float64)
-  phi,a,r,phi_,a_ = replay!(er,phi,a,r,phi_,a_)
+  _phi,a,r,_phi_,a_ = replay!(er,_phi,a,r,_phi_,a_)
   #expand the state representation
-  f, f_ = expand3(exp,phi,phi_)
+  f, f_ = expand3(exp,_phi,_phi_)
   #f_ = expand(exp,phi_)
   #expand with respect to actions
   #phi = expand(exp::ActionFeatureExpander,f,a)
@@ -70,11 +73,16 @@ function update!{T}(param::GQParam,
   #println(size(param.th))
   q = dot(param.th,vec(phi)) #TODO: dealing with feature functions that involve state and action?
   #extracting out the best next action--semi-redundant step
-  phi_s = [expand(exp::ActionFeatureExpander,f_,_a) for _a in domain(param.A)]
-  qs_ = [dot(param.th,vec(v)) for v in phi_s]
-  q_ind_ = indmax(qs_)
-  q_ = qs_[q_ind_]
-  phi_ = phi_s[q_ind_]
+  if param.consistent_action_gap && (_phi == _phi_)
+    q_ = q
+    phi_ = phi #deepcopy?
+  else
+    phi_s = [expand(exp::ActionFeatureExpander,f_,_a) for _a in domain(param.A)]
+    qs_ = [dot(param.th,vec(v)) for v in phi_s]
+    q_ind_ = indmax(qs_)
+    q_ = qs_[q_ind_]
+    phi_ = phi_s[q_ind_]
+  end
   # end step
   if param.is_replacing_trace
     param.e = vec(max(phi,param.e)) #NOTE: assumes binary features
@@ -90,5 +98,12 @@ function update!{T}(param::GQParam,
   param.e = gamma*param.lambda*param.e
   nb_new_feat = update!(exp,f,del)
   pad!(param,nb_new_feat,length(f))
+  #=
+  if nb_new_feat > 0
+    f,f_ = expand3(exp,_phi,_phi_)
+    phi = expand(exp,f,a)
+    phi_ = expand(exp::ActionFeatureExpander,f_,domain(param.A)[q_ind_])
+  end
+  =#
   return del, q
 end
